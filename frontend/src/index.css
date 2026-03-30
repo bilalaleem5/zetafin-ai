@@ -1,0 +1,140 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  *, *::before, *::after { box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background-color: #060608;
+    color: #f1f5f9;
+    font-family: 'Inter', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    min-height: 100vh;
+  }
+
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: #0e0f14; }
+  ::-webkit-scrollbar-thumb { background: #1a1b24; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #6366f1; }
+
+  ::selection { background: rgba(99,102,241,0.3); color: #f1f5f9; }
+}
+
+@layer components {
+
+  /* ====== Cards ====== */
+  .card {
+    @apply bg-bg-card border border-border rounded-2xl;
+  }
+  .card-elevated {
+    @apply bg-bg-elevated border border-border rounded-2xl;
+  }
+  .glass {
+    background: rgba(19, 20, 26, 0.7);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    @apply border border-border rounded-2xl;
+  }
+
+  /* ====== Buttons ====== */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 font-semibold rounded-xl px-5 py-2.5 transition-all duration-200 cursor-pointer select-none;
+  }
+  .btn-primary {
+    @apply btn bg-brand hover:bg-brand-dim text-white shadow-lg;
+    box-shadow: 0 0 20px rgba(99,102,241,0.3);
+  }
+  .btn-primary:hover {
+    box-shadow: 0 0 30px rgba(99,102,241,0.5);
+    transform: translateY(-1px);
+  }
+  .btn-ghost {
+    @apply btn bg-transparent hover:bg-white/5 text-text-secondary hover:text-text-primary border border-border;
+  }
+  .btn-danger {
+    @apply btn bg-red/10 hover:bg-red/20 text-red border border-red/20;
+  }
+  .btn-success {
+    @apply btn bg-green/10 hover:bg-green/20 text-green border border-green/20;
+  }
+
+  /* ====== Inputs ====== */
+  .input {
+    @apply w-full bg-bg-surface border border-border rounded-xl px-4 py-3 text-text-primary placeholder-text-muted
+    focus:outline-none focus:border-brand/50 focus:ring-2 focus:ring-brand/20 transition-all duration-200;
+  }
+  .input-group {
+    @apply flex flex-col gap-1.5;
+  }
+  .input-label {
+    @apply text-sm font-medium text-text-secondary;
+  }
+
+  /* ====== Badges ====== */
+  .badge {
+    @apply inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-0.5 rounded-full;
+  }
+  .badge-green  { @apply badge bg-green/10 text-green; }
+  .badge-red    { @apply badge bg-red/10 text-red; }
+  .badge-amber  { @apply badge bg-amber/10 text-amber; }
+  .badge-brand  { @apply badge bg-brand/10 text-brand; }
+  .badge-muted  { @apply badge bg-white/5 text-text-secondary; }
+
+  /* ====== Misc ====== */
+  .divider {
+    @apply border-t border-border my-6;
+  }
+  .glow-brand { box-shadow: 0 0 40px rgba(99,102,241,0.2); }
+  .glow-green { box-shadow: 0 0 40px rgba(16,185,129,0.15); }
+  .glow-red   { box-shadow: 0 0 40px rgba(244,63,94,0.15); }
+
+  /* ====== Nav ====== */
+  .nav-link {
+    @apply flex items-center gap-3 px-3 py-2.5 rounded-xl text-text-secondary hover:text-text-primary hover:bg-white/5 transition-all duration-200 text-sm font-medium;
+  }
+  .nav-link.active {
+    @apply text-brand bg-brand/10;
+  }
+}
+
+/* ====== Gradient Text ====== */
+.gradient-text {
+  background: linear-gradient(135deg, #818cf8, #6366f1, #a78bfa);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ====== Animated gradient bg for hero ====== */
+.hero-gradient {
+  background: radial-gradient(ellipse at 20% 50%, rgba(99,102,241,0.12) 0%, transparent 60%),
+              radial-gradient(ellipse at 80% 20%, rgba(167,139,250,0.08) 0%, transparent 50%),
+              radial-gradient(ellipse at 50% 80%, rgba(16,185,129,0.06) 0%, transparent 50%);
+}
+
+/* ====== Stat card accent line ====== */
+.accent-left-brand { border-left: 3px solid #6366f1; }
+.accent-left-green { border-left: 3px solid #10b981; }
+.accent-left-red   { border-left: 3px solid #f43f5e; }
+.accent-left-amber { border-left: 3px solid #f59e0b; }
+
+/* ====== Number font ====== */
+.num {
+  font-family: 'JetBrains Mono', monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ====== Loading shimmer ====== */
+@keyframes shimmer {
+  from { background-position: -200% 0; }
+  to   { background-position:  200% 0; }
+}
+.shimmer {
+  background: linear-gradient(90deg, #13141a 25%, #1a1b24 50%, #13141a 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
