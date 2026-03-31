@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { 
   LayoutDashboard, ArrowLeftRight, Users, UserCheck, 
-  LogOut, Menu, MessageSquare, Bell, Store
+  LogOut, Menu, MessageSquare, Bell, Store, FileSpreadsheet, PieChart
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 
@@ -13,6 +13,8 @@ const NAV = [
   { to: '/employees',   label: 'Team',         icon: UserCheck },
   { to: '/expenses',    label: 'Expenses',     icon: ArrowLeftRight },
   { to: '/vendors',     label: 'Vendors',      icon: Store },
+  { to: '/reconciliation', label: 'Bank Sync', icon: FileSpreadsheet },
+  { to: '/reports',     label: 'Reports [P&L]',icon: PieChart },
 ]
 
 export default function Layout() {

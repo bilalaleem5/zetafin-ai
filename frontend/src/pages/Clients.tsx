@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Plus, Users, CheckCircle2, Clock, AlertTriangle, X, Edit2, Trash2 } from 'lucide-react'
+import { Plus, Users, CheckCircle2, Clock, AlertTriangle, X, Edit2, Trash2, FileText } from 'lucide-react'
 import api from '../api'
+import { useReactToPrint } from 'react-to-print'
+import { InvoiceDocument, InvoiceUser } from '../components/InvoiceDocument'
 
 interface Milestone { id: number; title: string; amount: number; due_date: string; status: string; tax_amount: number; tax_type: string; }
 interface Client { id: number; name: string; contract_value: number; payment_terms: string; status: string }
@@ -31,9 +33,26 @@ export default function Clients() {
   const [form, setForm] = useState({ name: '', contract_value: '', payment_terms: 'Net 30' })
   const [mForm, setMForm] = useState({ title: '', amount: '', tax_amount: '0', tax_type: '', due_date: '' })
   const [saving, setSaving] = useState(false)
+  const [user, setUser] = useState<InvoiceUser | null>(null)
+  const [printingMilestone, setPrintingMilestone] = useState<Milestone | null>(null)
+  
+  const invoiceRef = React.useRef<HTMLDivElement>(null)
+  const handlePrint = useReactToPrint({
+    contentRef: invoiceRef,
+    documentTitle: 'Invoice',
+    onAfterPrint: () => setPrintingMilestone(null)
+  });
+
+  const printInvoice = (m: Milestone) => {
+    setPrintingMilestone(m);
+    setTimeout(handlePrint, 100);
+  };
 
   const load = async () => {
-    try { const { data } = await api.get('/clients/'); setClients(data) } catch {}
+    try { 
+      const { data } = await api.get('/clients/'); setClients(data) 
+      const res = await api.get('/users/me'); setUser(res.data)
+    } catch {}
   }
   useEffect(() => { load() }, [])
 
@@ -189,7 +208,7 @@ export default function Clients() {
             <div className="flex-1 overflow-y-auto p-6 space-y-4">
               <div className="flex justify-between items-center">
                 <h3 className="font-bold text-xs uppercase tracking-widest text-text-secondary">All Milestones</h3>
-                <button onClick={() => { setEditMilestone(null); setMForm({ title: '', amount: '', due_date: '' }); setShowMilestoneModal(true) }} className="btn-primary py-2 px-4 text-xs font-bold">+ Add New</button>
+                <button onClick={() => { setEditMilestone(null); setMForm({ title: '', amount: '', tax_amount: '0', tax_type: '', due_date: '' }); setShowMilestoneModal(true) }} className="btn-primary py-2 px-4 text-xs font-bold">+ Add New</button>
               </div>
               {milestones.length === 0 ? (
                 <p className="text-center py-12 text-text-muted text-sm italic">No milestones defined.</p>
@@ -210,7 +229,10 @@ export default function Clients() {
                           {m.status}
                         </span>
                         {m.status !== 'Paid' && (
-                          <button onClick={() => handleReceive(m.id)} className="btn-primary py-1.5 px-3 text-[10px] font-bold">Mark Received</button>
+                          <div className="flex gap-2">
+                             <button onClick={() => printInvoice(m)} className="btn-ghost py-1.5 px-3 text-[10px] font-bold flex items-center gap-1.5"><FileText size={12}/> Invoice</button>
+                             <button onClick={() => handleReceive(m.id)} className="btn-primary py-1.5 px-3 text-[10px] font-bold">Mark Received</button>
+                          </div>
                         )}
                       </div>
                     </div>
@@ -294,6 +316,17 @@ export default function Clients() {
           </motion.div>
         </div>
       )}
+
+      <div className="hidden">
+        {(printingMilestone && selectedClient && user) ? (
+          <InvoiceDocument
+            ref={invoiceRef}
+            user={user}
+            client={selectedClient}
+            milestone={printingMilestone}
+          />
+        ) : null}
+      </div>
     </div>
   )
 }

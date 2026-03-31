@@ -1,4 +1,5 @@
-from fastapi import FastAPI, Depends, HTTPException, status, Request
+from fastapi import FastAPI, Depends, HTTPException, status, Request, UploadFile, File
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlmodel import Session, select
@@ -6,6 +7,8 @@ from typing import List
 import uvicorn
 import traceback
 import os
+import csv
+from io import StringIO
 from datetime import datetime
 
 from database import engine, get_session, create_db_and_tables
@@ -615,6 +618,105 @@ async def handle_whatsapp_message(request: Request, session: Session = Depends(g
     except Exception as e:
         print(f"Error processing WhatsApp message: {e}")
         return {"status": "error", "message": str(e)}
+
+# --- REPORTS ---
+import io
+@app.get("/reports/pnl")
+def get_pnl_report(current_user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+    txs = session.exec(select(Transaction).where(Transaction.user_id == current_user.id)).all()
+    income_by_category = {}
+    expense_by_category = {}
+    total_in = 0
+    total_out = 0
+    
+    for t in txs:
+        if t.type == "income":
+            total_in += t.amount
+            income_by_category[t.category] = income_by_category.get(t.category, 0) + t.amount
+        else:
+            total_out += t.amount
+            expense_by_category[t.category] = expense_by_category.get(t.category, 0) + t.amount
+
+    return {
+        "total_income": total_in,
+        "total_expense": total_out,
+        "net_profit": total_in - total_out,
+        "income_breakdown": [{"category": k, "amount": v} for k,v in income_by_category.items()],
+        "expense_breakdown": [{"category": k, "amount": v} for k,v in expense_by_category.items()],
+    }
+
+@app.get("/reports/export")
+def export_transactions(current_user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+    txs = session.exec(select(Transaction).where(Transaction.user_id == current_user.id).order_by(Transaction.date.desc())).all()
+    
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["ID", "Date", "Description", "Category", "Type", "Net Amount", "Tax Withheld", "Tax Type"])
+    
+    for t in txs:
+        writer.writerow([
+            t.id, 
+            t.date.strftime("%Y-%m-%d %H:%M:%S"),
+            t.description,
+            t.category,
+            t.type,
+            t.amount,
+            t.tax_amount or 0,
+            t.tax_type or "None"
+        ])
+    
+    output.seek(0)
+    return StreamingResponse(iter([output.getvalue()]), media_type="text/csv", headers={"Content-Disposition": "attachment; filename=zetafin_transactions.csv"})
+# --- RECONCILIATION ---
+@app.post("/reconciliation/upload")
+async def upload_bank_statement(file: UploadFile = File(...), current_user: User = Depends(get_current_user)):
+    content = await file.read()
+    try:
+        text = content.decode("utf-8")
+    except UnicodeDecodeError:
+        text = content.decode("latin-1")
+    
+    # Simple heuristic CSV parser
+    try:
+        reader = csv.DictReader(StringIO(text))
+        parsed_rows = []
+        for row in reader:
+            row_lower = {k.lower().strip() if isinstance(k, str) else '': v.strip() if isinstance(v, str) else v for k,v in row.items()}
+            
+            date_val = row_lower.get('date', row_lower.get('transaction date', ''))
+            desc_val = row_lower.get('description', row_lower.get('particulars', row_lower.get('details', '')))
+            
+            debit_str = row_lower.get('debit', '0').replace(',', '') or '0'
+            credit_str = row_lower.get('credit', '0').replace(',', '') or '0'
+            
+            if not date_val and not desc_val:
+                continue
+                
+            try:
+                d_amt = float(debit_str)
+                c_amt = float(credit_str)
+            except ValueError:
+                continue
+                
+            amount = c_amt - d_amt # Positive = Income, Negative = Expense
+            
+            if amount == 0:
+                amt_str = row_lower.get('amount', '0').replace(',', '')
+                try: 
+                    amount = float(amt_str)
+                except ValueError:
+                    pass
+            
+            if amount != 0:
+                parsed_rows.append({
+                    "id": len(parsed_rows) + 1,
+                    "date": date_val,
+                    "description": desc_val,
+                    "amount": amount
+                })
+        return {"transactions": parsed_rows}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to parse CSV: {str(e)}")
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

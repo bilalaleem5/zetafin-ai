@@ -181,7 +181,7 @@ export default function Vendors() {
             <div className="flex-1 overflow-y-auto p-6 space-y-4">
               <div className="flex justify-between items-center">
                 <h3 className="font-bold text-xs uppercase tracking-widest text-text-secondary">Outstanding & Past Bills</h3>
-                <button onClick={() => { setEditBill(null); setBForm({ title: '', amount: '', due_date: '' }); setShowBillModal(true) }} className="btn-primary py-2 px-4 text-xs font-bold">+ Log Bill</button>
+                <button onClick={() => { setEditBill(null); setBForm({ title: '', amount: '', tax_amount: '0', tax_type: '', due_date: '' }); setShowBillModal(true) }} className="btn-primary py-2 px-4 text-xs font-bold">+ Log Bill</button>
               </div>
               
               {bills.length === 0 ? (
