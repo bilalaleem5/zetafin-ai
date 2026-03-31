@@ -11,6 +11,7 @@ import Expenses from './pages/Expenses'
 import Vendors from './pages/Vendors'
 import Reconciliation from './pages/Reconciliation'
 import Reports from './pages/Reports'
+import Budgeting from './pages/Budgeting'
 import Layout from './components/Layout'
 
 const isAuth = () => !!localStorage.getItem('zetamize_token')
@@ -34,6 +35,7 @@ export default function App() {
           <Route path="/vendors"      element={<Vendors />} />
           <Route path="/reconciliation" element={<Reconciliation />} />
           <Route path="/reports"      element={<Reports />} />
+          <Route path="/budgeting"    element={<Budgeting />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

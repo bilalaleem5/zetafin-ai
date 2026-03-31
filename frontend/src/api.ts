@@ -1,7 +1,8 @@
 import axios from 'axios'
 
+const isProd = import.meta.env.MODE === 'production'
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8123',
+  baseURL: import.meta.env.VITE_API_URL || (isProd ? 'https://zetafin-ai.onrender.com' : 'http://localhost:8000'),
 })
 
 api.interceptors.request.use((config) => {

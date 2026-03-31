@@ -9,6 +9,7 @@ import {
   Tooltip, ResponsiveContainer
 } from 'recharts'
 import api from '../api'
+import AIConsultant from '../components/AIConsultant'
 
 // ── Shimmer placeholder ──────────────────────────────────────────────────────
 const Shimmer = ({ className = '' }: { className?: string }) => (
@@ -283,6 +284,8 @@ export default function Dashboard() {
           </motion.div>
         </div>
       </div>
+
+      <AIConsultant />
     </div>
   )
 }

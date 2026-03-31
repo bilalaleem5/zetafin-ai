@@ -9,8 +9,7 @@ interface Tx {
   tax_amount: number; tax_type: string;
 }
 
-const INCOME_CATS = ['Client Revenue', 'Project Work', 'Retainer', 'Other']
-const EXPENSE_CATS = ['Rent', 'Salaries', 'Marketing', 'Utilities', 'Operations', 'Travel', 'Miscellaneous']
+
 
 export default function Transactions() {
   const [txs, setTxs]         = useState<Tx[]>([])
@@ -18,11 +17,18 @@ export default function Transactions() {
   const [q, setQ]             = useState('')
   const [showModal, setShowModal] = useState(false)
   const [form, setForm]       = useState({ amount: '', tax_amount: '0', tax_type: '', category: 'Client Revenue', description: '', type: 'income' })
+  const [categories, setCategories] = useState<string[]>(['Software', 'Hardware', 'Marketing', 'Office Supplies', 'Legal', 'Contractor', 'Rent', 'Salaries', 'Utilities', 'Operations', 'Travel', 'Miscellaneous', 'Client Revenue'])
+  const [customCat, setCustomCat] = useState('')
   const [saving, setSaving]   = useState(false)
 
   const load = async () => {
     setLoading(true)
-    try { const { data } = await api.get('/transactions/'); setTxs(data) }
+    try { 
+      const { data } = await api.get('/transactions/')
+      setTxs(data)
+      const { data: cats } = await api.get('/metadata/categories')
+      setCategories(cats)
+    }
     catch { /* demo */ }
     finally { setLoading(false) }
   }
@@ -30,15 +36,17 @@ export default function Transactions() {
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault(); setSaving(true)
+    const finalCat = form.category === 'Other' ? customCat : form.category
     try {
       const payload = { 
         ...form, 
+        category: finalCat,
         amount: parseFloat(form.amount), 
         tax_amount: form.tax_amount ? parseFloat(form.tax_amount) : 0,
         date: new Date().toISOString() 
       }
       await api.post('/transactions/', payload)
-      setShowModal(false); setForm({ amount: '', tax_amount: '0', tax_type: '', category: 'Client Revenue', description: '', type: 'income' })
+      setShowModal(false); setForm({ amount: '', tax_amount: '0', tax_type: '', category: 'Client Revenue', description: '', type: 'income' }); setCustomCat('')
       load()
     } catch { /* ignore */ }
     finally { setSaving(false) }
@@ -182,9 +190,16 @@ export default function Transactions() {
               <div className="input-group">
                 <label className="input-label">Category</label>
                 <select className="input" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
-                  {(form.type === 'income' ? INCOME_CATS : EXPENSE_CATS).map((c) => <option key={c}>{c}</option>)}
+                  {categories.filter(c => form.type === 'income' ? (c.includes('Revenue') || c === 'Other') : !c.includes('Revenue')).map((c) => <option key={c} value={c}>{c}</option>)}
+                  <option value="Other">Other (Custom)</option>
                 </select>
               </div>
+              {(form.category === 'Other' || form.category === 'Other (Custom)') && (
+                <div className="input-group animate-in fade-in slide-in-from-top-2">
+                  <label className="input-label">Custom Category Name</label>
+                  <input className="input" placeholder="e.g. Photography" value={customCat} onChange={(e) => setCustomCat(e.target.value)} required />
+                </div>
+              )}
               <div className="input-group">
                 <label className="input-label">Description</label>
                 <input className="input" placeholder="Ali Traders — March Invoice" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} required />

@@ -96,6 +96,8 @@ class RecurringExpenseRead(RecurringExpenseBase):
 class VendorBase(BaseModel):
     name: str
     category: str
+    description: Optional[str] = None
+    opening_balance: float = 0.0
     contact: Optional[str] = None
     status: str = "Active"
 
@@ -153,6 +155,34 @@ class TransactionCreate(TransactionBase):
     pass
 
 class TransactionRead(TransactionBase):
+    id: int
+    user_id: int
+
+    class Config:
+        from_attributes = True
+
+class AuditLogRead(BaseModel):
+    id: int
+    user_id: int
+    action: str
+    table_name: str
+    record_id: int
+    old_values: Optional[str] = None
+    new_values: Optional[str] = None
+    timestamp: datetime
+
+    class Config:
+        from_attributes = True
+
+class BudgetBase(BaseModel):
+    category: str
+    amount: float
+    month: str
+
+class BudgetCreate(BudgetBase):
+    pass
+
+class BudgetRead(BudgetBase):
     id: int
     user_id: int
 

@@ -4,10 +4,10 @@ import { Plus, Store, CheckCircle2, Clock, AlertTriangle, X, Edit2, Trash2, Buil
 import api from '../api'
 
 interface VendorBill { id: number; title: string; amount: number; due_date: string; status: string; tax_amount: number; tax_type: string; }
-interface Vendor { id: number; name: string; category: string; contact: string; status: string }
+interface Vendor { id: number; name: string; category: string; description?: string; opening_balance?: number; contact: string; status: string; total_paid?: number; total_outstanding?: number; }
 
 const statusStyle: Record<string, string> = {
-  Paid:    'badge-green',
+  Paid: 'badge-green',
   Pending: 'badge-amber',
   Overdue: 'badge-red',
   Partial: 'badge-brand',
@@ -23,26 +23,39 @@ export default function Vendors() {
   const [selectedVendor, setSelectedVendor] = useState<Vendor | null>(null)
   const [editVendor, setEditVendor] = useState<Vendor | null>(null)
   const [editBill, setEditBill] = useState<VendorBill | null>(null)
-  
+
   const [bills, setBills] = useState<VendorBill[]>([])
-  const [form, setForm] = useState({ name: '', category: 'Software', contact: '' })
+  const [form, setForm] = useState({ name: '', category: 'Software', description: '', opening_balance: '0', contact: '' })
   const [bForm, setBForm] = useState({ title: '', amount: '', tax_amount: '0', tax_type: '', due_date: '' })
+  const [categories, setCategories] = useState<string[]>(['Software', 'Hardware', 'Marketing', 'Office Supplies', 'Legal', 'Contractor', 'Rent', 'Salaries', 'Utilities', 'Operations', 'Travel', 'Miscellaneous', 'Client Revenue'])
+  const [customCat, setCustomCat] = useState('')
   const [saving, setSaving] = useState(false)
 
   const load = async () => {
-    try { const { data } = await api.get('/vendors/'); setVendors(data) } catch {}
+    try { 
+      const { data } = await api.get('/vendors/')
+      setVendors(data)
+      const { data: cats } = await api.get('/metadata/categories')
+      setCategories(cats)
+    } catch { }
   }
   useEffect(() => { load() }, [])
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault(); setSaving(true)
+    const finalCat = form.category === 'Other' ? customCat : form.category
+    const payload = { 
+      ...form, 
+      category: finalCat,
+      opening_balance: parseFloat(form.opening_balance) || 0
+    }
     try {
       if (editVendor) {
-        await api.patch(`/vendors/${editVendor.id}`, form)
+        await api.patch(`/vendors/${editVendor.id}`, payload)
       } else {
-        await api.post('/vendors/', form)
+        await api.post('/vendors/', payload)
       }
-      setShowModal(false); setEditVendor(null); setForm({ name: '', category: 'Software', contact: '' })
+      setShowModal(false); setEditVendor(null); setForm({ name: '', category: 'Software', description: '', opening_balance: '0', contact: '' }); setCustomCat('')
       load()
     } catch { alert('Error saving vendor') } finally { setSaving(false) }
   }
@@ -59,7 +72,7 @@ export default function Vendors() {
     try {
       const { data } = await api.get(`/vendors/${vendorId}/bills/`)
       setBills(data)
-    } catch {}
+    } catch { }
   }
 
   const saveBill = async (e: React.FormEvent) => {
@@ -94,7 +107,7 @@ export default function Vendors() {
 
   const openEditVendor = (v: Vendor) => {
     setEditVendor(v)
-    setForm({ name: v.name, category: v.category, contact: v.contact || '' })
+    setForm({ name: v.name, category: v.category, description: v.description || '', opening_balance: (v.opening_balance || 0).toString(), contact: v.contact || '' })
     setShowModal(true)
   }
 
@@ -111,7 +124,7 @@ export default function Vendors() {
           <h1 className="text-2xl font-bold">Vendor Management</h1>
           <p className="text-text-secondary text-sm mt-0.5">{vendors.length} vendors connected</p>
         </div>
-        <button onClick={() => { setEditVendor(null); setForm({ name: '', category: 'Software', contact: '' }); setShowModal(true) }} className="btn-primary">
+        <button onClick={() => { setEditVendor(null); setForm({ name: '', category: 'Software', description: '', opening_balance: '0', contact: '' }); setShowModal(true) }} className="btn-primary">
           <Plus size={18} /> Add Vendor
         </button>
       </div>
@@ -142,10 +155,33 @@ export default function Vendors() {
                   </div>
                 </div>
                 <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                   <button onClick={() => openEditVendor(v)} className="p-1.5 hover:bg-white/10 rounded-lg text-text-muted"><Edit2 size={12}/></button>
-                   <button onClick={() => handleDeleteVendor(v.id)} className="p-1.5 hover:bg-white/10 rounded-lg text-red/60"><Trash2 size={12}/></button>
+                  <button onClick={() => openEditVendor(v)} className="p-1.5 hover:bg-white/10 rounded-lg text-text-muted"><Edit2 size={12} /></button>
+                  <button onClick={() => handleDeleteVendor(v.id)} className="p-1.5 hover:bg-white/10 rounded-lg text-red/60"><Trash2 size={12} /></button>
                 </div>
               </div>
+
+              {v.description && (
+                <p className="text-[11px] text-text-secondary line-clamp-2 mb-3 bg-white/5 p-2 rounded-lg italic">
+                  "{v.description}"
+                </p>
+              )}
+
+              <div className="grid grid-cols-2 gap-2 mb-4">
+                <div className="bg-white/[0.03] p-2 rounded-lg border border-white/5">
+                  <p className="text-[9px] uppercase text-text-muted font-bold">Paid</p>
+                  <p className="text-xs font-bold text-green">PKR {(v.total_paid || 0).toLocaleString()}</p>
+                </div>
+                <div className="bg-white/[0.03] p-2 rounded-lg border border-white/5">
+                  <p className="text-[9px] uppercase text-text-muted font-bold">Balance</p>
+                  <p className="text-xs font-bold text-red">PKR {(v.total_outstanding || 0).toLocaleString()}</p>
+                </div>
+              </div>
+
+              {v.description && (
+                <p className="text-[11px] text-text-secondary line-clamp-2 mb-3 bg-white/5 p-2 rounded-lg italic">
+                  "{v.description}"
+                </p>
+              )}
 
               {v.contact && (
                 <div className="text-xs text-text-muted mb-4 pb-4 border-b border-white/5">
@@ -153,8 +189,8 @@ export default function Vendors() {
                 </div>
               )}
 
-              <button 
-                onClick={() => { setSelectedVendor(v); loadBills(v.id) }} 
+              <button
+                onClick={() => { setSelectedVendor(v); loadBills(v.id) }}
                 className="btn-ghost w-full py-2.5 text-xs font-bold border-brand/20 hover:border-brand/50 mt-auto"
               >
                 Manage Bills
@@ -175,15 +211,15 @@ export default function Vendors() {
                   <p className="text-[10px] text-text-muted uppercase tracking-widest font-bold">Accounts Payable (Bills)</p>
                 </div>
               </div>
-              <button onClick={() => setSelectedVendor(null)} className="p-2 hover:bg-white/10 rounded-xl transition-colors"><X size={20}/></button>
+              <button onClick={() => setSelectedVendor(null)} className="p-2 hover:bg-white/10 rounded-xl transition-colors"><X size={20} /></button>
             </div>
-            
+
             <div className="flex-1 overflow-y-auto p-6 space-y-4">
               <div className="flex justify-between items-center">
                 <h3 className="font-bold text-xs uppercase tracking-widest text-text-secondary">Outstanding & Past Bills</h3>
                 <button onClick={() => { setEditBill(null); setBForm({ title: '', amount: '', tax_amount: '0', tax_type: '', due_date: '' }); setShowBillModal(true) }} className="btn-primary py-2 px-4 text-xs font-bold">+ Log Bill</button>
               </div>
-              
+
               {bills.length === 0 ? (
                 <p className="text-center py-12 text-text-muted text-sm italic">No bills logged for this vendor.</p>
               ) : (
@@ -198,8 +234,8 @@ export default function Vendors() {
                         </div>
                         <div className="flex items-center gap-3">
                           <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                             <button onClick={() => openEditBill(b)} className="p-1.5 hover:bg-white/10 rounded-lg text-text-muted"><Edit2 size={12}/></button>
-                             <button onClick={() => handleDeleteBill(b.id)} className="p-1.5 hover:bg-white/10 rounded-lg text-red/60"><Trash2 size={12}/></button>
+                            <button onClick={() => openEditBill(b)} className="p-1.5 hover:bg-white/10 rounded-lg text-text-muted"><Edit2 size={12} /></button>
+                            <button onClick={() => handleDeleteBill(b.id)} className="p-1.5 hover:bg-white/10 rounded-lg text-red/60"><Trash2 size={12} /></button>
                           </div>
                           <span className={`badge ${statusStyle[b.status] || 'badge-amber'}`}>
                             <BIcon size={10} /> {b.status}
@@ -223,7 +259,7 @@ export default function Vendors() {
           <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="glass w-full max-w-md p-8 space-y-6">
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-bold">{editVendor ? 'Edit Vendor' : 'New Vendor'}</h2>
-              <button onClick={() => setShowModal(false)}><X size={20}/></button>
+              <button onClick={() => setShowModal(false)}><X size={20} /></button>
             </div>
             <form onSubmit={save} className="space-y-5">
               <div className="input-group">
@@ -231,11 +267,28 @@ export default function Vendors() {
                 <input className="input" placeholder="Supplier INC" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
               </div>
               <div className="input-group">
-                <label className="input-label">Category *</label>
-                <select className="input" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
-                  {['Software', 'Hardware', 'Marketing', 'Office Supplies', 'Legal', 'Contractor', 'Other'].map(t => <option key={t}>{t}</option>)}
-                </select>
+                <label className="input-label">Short Description / Notes</label>
+                <input className="input" placeholder="Primary hardware supplier for lab equipment" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
               </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="input-group">
+                  <label className="input-label">Category *</label>
+                  <select className="input" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
+                    {categories.map(t => <option key={t} value={t}>{t}</option>)}
+                    <option value="Other">Other (Custom)</option>
+                  </select>
+                </div>
+                <div className="input-group">
+                  <label className="input-label">Opening Balance (Debt)</label>
+                  <input className="input" type="number" placeholder="0" value={form.opening_balance} onChange={(e) => setForm({ ...form, opening_balance: e.target.value })} />
+                </div>
+              </div>
+              {(form.category === 'Other' || form.category === 'Other (Custom)') && (
+                <div className="input-group animate-in fade-in slide-in-from-top-2">
+                  <label className="input-label">Custom Category Name</label>
+                  <input className="input" placeholder="e.g. Photography" value={customCat} onChange={(e) => setCustomCat(e.target.value)} required />
+                </div>
+              )}
               <div className="input-group">
                 <label className="input-label">Contact / Email</label>
                 <input className="input" placeholder="contact@vendor.com" value={form.contact} onChange={(e) => setForm({ ...form, contact: e.target.value })} />
@@ -253,25 +306,25 @@ export default function Vendors() {
           <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} className="glass w-full max-w-sm p-8 space-y-6">
             <div className="flex justify-between items-center">
               <h2 className="text-lg font-bold">{editBill ? 'Edit Bill' : 'Log Bill'}</h2>
-              <button onClick={() => setShowBillModal(false)}><X size={20}/></button>
+              <button onClick={() => setShowBillModal(false)}><X size={20} /></button>
             </div>
             <form onSubmit={saveBill} className="space-y-5">
               <div className="input-group">
                 <label className="input-label">Bill Title / Invoice #</label>
-                <input className="input" placeholder="AWS Bill March" value={bForm.title} onChange={e => setBForm({...bForm, title: e.target.value})} required />
+                <input className="input" placeholder="AWS Bill March" value={bForm.title} onChange={e => setBForm({ ...bForm, title: e.target.value })} required />
               </div>
               <div className="input-group">
                 <label className="input-label">Gross Amount (PKR)</label>
-                <input className="input" type="number" placeholder="5000" value={bForm.amount} onChange={e => setBForm({...bForm, amount: e.target.value})} required />
+                <input className="input" type="number" placeholder="5000" value={bForm.amount} onChange={e => setBForm({ ...bForm, amount: e.target.value })} required />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="input-group">
                   <label className="input-label">Tax Deducted (PKR)</label>
-                  <input className="input" type="number" placeholder="0" value={bForm.tax_amount} onChange={e => setBForm({...bForm, tax_amount: e.target.value})} />
+                  <input className="input" type="number" placeholder="0" value={bForm.tax_amount} onChange={e => setBForm({ ...bForm, tax_amount: e.target.value })} />
                 </div>
                 <div className="input-group">
                   <label className="input-label">Tax Type</label>
-                  <select className="input" value={bForm.tax_type} onChange={e => setBForm({...bForm, tax_type: e.target.value})}>
+                  <select className="input" value={bForm.tax_type} onChange={e => setBForm({ ...bForm, tax_type: e.target.value })}>
                     <option value="">None</option>
                     <option value="WHT">WHT</option>
                     <option value="GST">GST</option>
@@ -281,7 +334,7 @@ export default function Vendors() {
               </div>
               <div className="input-group">
                 <label className="input-label">Due Date</label>
-                <input className="input" type="date" value={bForm.due_date} onChange={e => setBForm({...bForm, due_date: e.target.value})} required />
+                <input className="input" type="date" value={bForm.due_date} onChange={e => setBForm({ ...bForm, due_date: e.target.value })} required />
               </div>
               <button type="submit" disabled={saving} className="bg-brand text-brand-darkest hover:brightness-110 w-full py-3.5 rounded-xl font-bold transition-all shadow-xl shadow-brand/20">
                 {saving ? 'Saving...' : (editBill ? 'Update Bill' : 'Log Payable')}

@@ -18,6 +18,8 @@ export default function Reconciliation() {
   const [showModal, setShowModal] = useState(false)
   const [activeTx, setActiveTx] = useState<BankTx | null>(null)
   const [form, setForm] = useState({ category: 'Client Revenue', description: '', type: 'income', tax_amount: '0', tax_type: '' })
+  const [categories, setCategories] = useState<string[]>(['Software', 'Hardware', 'Marketing', 'Office Supplies', 'Legal', 'Contractor', 'Rent', 'Salaries', 'Utilities', 'Operations', 'Travel', 'Miscellaneous', 'Client Revenue'])
+  const [customCat, setCustomCat] = useState('')
   const [saving, setSaving] = useState(false)
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -37,6 +39,8 @@ export default function Reconciliation() {
         headers: { 'Content-Type': 'multipart/form-data' }
       })
       setBankTxs(data.transactions)
+      const { data: cats } = await api.get('/metadata/categories')
+      setCategories(cats)
     } catch (err) {
       alert('Failed to parse bank statement. Ensure it is a valid CSV.')
     } finally {
@@ -60,19 +64,20 @@ export default function Reconciliation() {
     e.preventDefault()
     if (!activeTx) return
     setSaving(true)
+    const finalCat = form.category === 'Other' ? customCat : form.category
     try {
       const payload = {
         amount: Math.abs(activeTx.amount),
         tax_amount: parseFloat(form.tax_amount) || 0,
         tax_type: form.tax_type,
-        category: form.category,
+        category: finalCat,
         description: form.description,
         type: form.type,
         date: new Date(activeTx.date).toISOString() || new Date().toISOString()
       }
       await api.post('/transactions/', payload)
       setImportedIds([...importedIds, activeTx.id])
-      setShowModal(false)
+      setShowModal(false); setCustomCat('')
     } catch {
       alert('Error importing transaction')
     } finally {
@@ -185,11 +190,18 @@ export default function Reconciliation() {
               <div className="input-group">
                 <label className="input-label">Categorize As</label>
                 <select className="input" value={form.category} onChange={e => setForm({...form, category: e.target.value})}>
-                  {(form.type === 'income' ? ['Client Revenue', 'Other'] : ['Rent', 'Salaries', 'Marketing', 'Utilities', 'Operations', 'Office Supplies']).map(c => (
-                    <option key={c}>{c}</option>
+                  {categories.filter(c => form.type === 'income' ? (c.includes('Revenue') || c === 'Other') : !c.includes('Revenue')).map(c => (
+                    <option key={c} value={c}>{c}</option>
                   ))}
+                  <option value="Other">Other (Custom)</option>
                 </select>
               </div>
+              {(form.category === 'Other' || form.category === 'Other (Custom)') && (
+                <div className="input-group animate-in fade-in slide-in-from-top-2">
+                  <label className="input-label">Custom Category Name</label>
+                  <input className="input" placeholder="e.g. Photography" value={customCat} onChange={(e) => setCustomCat(e.target.value)} required />
+                </div>
+              )}
 
               <div className="input-group">
                 <label className="input-label">Refined Description</label>

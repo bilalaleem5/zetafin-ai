@@ -19,6 +19,8 @@ class User(SQLModel, table=True):
     recurring_expenses: List["RecurringExpense"] = Relationship(back_populates="user")
     vendors: List["Vendor"] = Relationship(back_populates="user")
     vendor_bills: List["VendorBill"] = Relationship(back_populates="user")
+    audit_logs: List["AuditLog"] = Relationship(back_populates="user")
+    budgets: List["Budget"] = Relationship(back_populates="user")
 
 class Client(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -74,6 +76,8 @@ class Vendor(SQLModel, table=True):
     user_id: int = Field(foreign_key="user.id")
     name: str
     category: str
+    description: Optional[str] = Field(default=None)
+    opening_balance: float = Field(default=0.0)
     contact: Optional[str] = Field(default=None)
     status: str = Field(default="Active") # Active, Inactive
     
@@ -116,3 +120,24 @@ class Transaction(SQLModel, table=True):
     client: Optional[Client] = Relationship(back_populates="transactions")
     employee: Optional[Employee] = Relationship(back_populates="transactions")
     vendor: Optional[Vendor] = Relationship(back_populates="transactions")
+
+class AuditLog(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id")
+    action: str # EDIT, DELETE
+    table_name: str # e.g. Transaction, Milestone
+    record_id: int
+    old_values: Optional[str] = Field(default=None) # JSON string
+    new_values: Optional[str] = Field(default=None) # JSON string
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    
+    user: User = Relationship(back_populates="audit_logs")
+
+class Budget(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id")
+    category: str
+    amount: float
+    month: str # YYYY-MM
+    
+    user: User = Relationship(back_populates="budgets")

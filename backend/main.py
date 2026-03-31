@@ -8,11 +8,14 @@ import uvicorn
 import traceback
 import os
 import csv
+import json
+import httpx
 from io import StringIO
 from datetime import datetime
 
 from database import engine, get_session, create_db_and_tables
-from models import User, Client, Employee, Transaction, Milestone, RecurringExpense, Vendor, VendorBill
+from models import User, Client, Employee, Transaction, Milestone, RecurringExpense, Vendor, VendorBill, AuditLog, Budget
+from ai_consultant import query_ai_insights, log_audit, get_ceo_summary
 from schemas import (
     UserCreate, UserRead, Token, 
     ClientCreate, ClientRead, 
@@ -21,7 +24,7 @@ from schemas import (
     MilestoneCreate, MilestoneRead,
     RecurringExpenseCreate, RecurringExpenseRead,
     VendorCreate, VendorRead, VendorBillBase, VendorBillCreate, VendorBillRead,
-    BalanceUpdate
+    BalanceUpdate, AuditLogRead, BudgetRead, BudgetCreate
 )
 from auth import (
     get_password_hash, verify_password, 
@@ -116,12 +119,14 @@ def update_client(client_id: int, client_update: ClientCreate, current_user: Use
         raise HTTPException(status_code=404, detail="Client not found")
     
     update_data = client_update.dict(exclude_unset=True)
+    old_data = db_client.model_dump()
     for key, value in update_data.items():
         setattr(db_client, key, value)
     
     session.add(db_client)
     session.commit()
     session.refresh(db_client)
+    log_audit(session, current_user.id, "EDIT", "Client", db_client.id, old_val=old_data, new_val=db_client.model_dump())
     return db_client
 
 @app.delete("/clients/{client_id}")
@@ -130,8 +135,10 @@ def delete_client(client_id: int, current_user: User = Depends(get_current_user)
     if not db_client:
         raise HTTPException(status_code=404, detail="Client not found")
     # Also delete associated milestones and transactions to maintain integrity
+    old_data = db_client.model_dump()
     session.delete(db_client)
     session.commit()
+    log_audit(session, current_user.id, "DELETE", "Client", client_id, old_val=old_data)
     return {"ok": True}
 
 # --- MILESTONES ---
@@ -158,12 +165,14 @@ def update_milestone(milestone_id: int, milestone_update: MilestoneCreate, curre
         raise HTTPException(status_code=404, detail="Milestone not found")
     
     update_data = milestone_update.dict(exclude_unset=True)
+    old_data = db_milestone.model_dump()
     for key, value in update_data.items():
         setattr(db_milestone, key, value)
     
     session.add(db_milestone)
     session.commit()
     session.refresh(db_milestone)
+    log_audit(session, current_user.id, "EDIT", "Milestone", db_milestone.id, old_val=old_data, new_val=db_milestone.model_dump())
     return db_milestone
 
 @app.delete("/milestones/{milestone_id}")
@@ -171,8 +180,10 @@ def delete_milestone(milestone_id: int, current_user: User = Depends(get_current
     db_milestone = session.exec(select(Milestone).where(Milestone.id == milestone_id, Milestone.user_id == current_user.id)).first()
     if not db_milestone:
         raise HTTPException(status_code=404, detail="Milestone not found")
+    old_data = db_milestone.model_dump()
     session.delete(db_milestone)
     session.commit()
+    log_audit(session, current_user.id, "DELETE", "Milestone", milestone_id, old_val=old_data)
     return {"ok": True}
 
 @app.post("/milestones/{milestone_id}/receive", response_model=TransactionRead)
@@ -236,12 +247,14 @@ def update_recurring_expense(expense_id: int, expense_update: RecurringExpenseCr
         raise HTTPException(status_code=404, detail="Recurring expense not found")
     
     update_data = expense_update.dict(exclude_unset=True)
+    old_data = db_expense.model_dump()
     for key, value in update_data.items():
         setattr(db_expense, key, value)
     
     session.add(db_expense)
     session.commit()
     session.refresh(db_expense)
+    log_audit(session, current_user.id, "EDIT", "RecurringExpense", db_expense.id, old_val=old_data, new_val=db_expense.model_dump())
     return db_expense
 
 @app.delete("/recurring-expenses/{expense_id}")
@@ -249,8 +262,10 @@ def delete_recurring_expense(expense_id: int, current_user: User = Depends(get_c
     db_expense = session.exec(select(RecurringExpense).where(RecurringExpense.id == expense_id, RecurringExpense.user_id == current_user.id)).first()
     if not db_expense:
         raise HTTPException(status_code=404, detail="Recurring expense not found")
+    old_data = db_expense.model_dump()
     session.delete(db_expense)
     session.commit()
+    log_audit(session, current_user.id, "DELETE", "RecurringExpense", expense_id, old_val=old_data)
     return {"ok": True}
 
 # --- EMPLOYEES ---
@@ -275,12 +290,14 @@ def update_employee(employee_id: int, employee_update: EmployeeCreate, current_u
         raise HTTPException(status_code=404, detail="Employee not found")
     
     update_data = employee_update.dict(exclude_unset=True)
+    old_data = db_employee.model_dump()
     for key, value in update_data.items():
         setattr(db_employee, key, value)
     
     session.add(db_employee)
     session.commit()
     session.refresh(db_employee)
+    log_audit(session, current_user.id, "EDIT", "Employee", db_employee.id, old_val=old_data, new_val=db_employee.model_dump())
     return db_employee
 
 @app.delete("/employees/{employee_id}")
@@ -288,8 +305,10 @@ def delete_employee(employee_id: int, current_user: User = Depends(get_current_u
     db_employee = session.exec(select(Employee).where(Employee.id == employee_id, Employee.user_id == current_user.id)).first()
     if not db_employee:
         raise HTTPException(status_code=404, detail="Employee not found")
+    old_data = db_employee.model_dump()
     session.delete(db_employee)
     session.commit()
+    log_audit(session, current_user.id, "DELETE", "Employee", employee_id, old_val=old_data)
     return {"ok": True}
 
 @app.post("/employees/{employee_id}/pay", response_model=TransactionRead)
@@ -322,11 +341,42 @@ def create_vendor(vendor: VendorCreate, current_user: User = Depends(get_current
     session.add(db_vendor)
     session.commit()
     session.refresh(db_vendor)
+    
+    # If opening balance, create a dummy bill or just a transaction?
+    # User might want to track this as a starting point.
+    if db_vendor.opening_balance > 0:
+        initial_bill = VendorBill(
+            user_id=current_user.id,
+            vendor_id=db_vendor.id,
+            title="Opening Balance / Initial Debt",
+            amount=db_vendor.opening_balance,
+            due_date=datetime.utcnow(),
+            status="Pending"
+        )
+        session.add(initial_bill)
+        session.commit()
+        
     return db_vendor
 
-@app.get("/vendors/", response_model=List[VendorRead])
-def read_vendors(current_user: User = Depends(get_current_user), session: Session = Depends(get_session)):
-    return session.exec(select(Vendor).where(Vendor.user_id == current_user.id)).all()
+@app.get("/vendors/")
+def get_vendors(session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    statement = select(Vendor).where(Vendor.user_id == current_user.id)
+    vendors = session.exec(statement).all()
+    
+    results = []
+    for v in vendors:
+        # Calculate totals
+        bills_statement = select(VendorBill).where(VendorBill.vendor_id == v.id)
+        bills = session.exec(bills_statement).all()
+        total_paid = sum(b.amount for b in bills if b.status == "Paid")
+        total_outstanding = sum(b.amount for b in bills if b.status != "Paid")
+        
+        v_dict = v.model_dump()
+        v_dict["total_paid"] = total_paid
+        v_dict["total_outstanding"] = total_outstanding
+        results.append(v_dict)
+        
+    return results
 
 @app.patch("/vendors/{vendor_id}", response_model=VendorRead)
 def update_vendor(vendor_id: int, vendor_update: VendorCreate, current_user: User = Depends(get_current_user), session: Session = Depends(get_session)):
@@ -335,12 +385,14 @@ def update_vendor(vendor_id: int, vendor_update: VendorCreate, current_user: Use
         raise HTTPException(status_code=404, detail="Vendor not found")
     
     update_data = vendor_update.dict(exclude_unset=True)
+    old_data = db_vendor.model_dump()
     for key, value in update_data.items():
         setattr(db_vendor, key, value)
     
     session.add(db_vendor)
     session.commit()
     session.refresh(db_vendor)
+    log_audit(session, current_user.id, "EDIT", "Vendor", db_vendor.id, old_val=old_data, new_val=db_vendor.model_dump())
     return db_vendor
 
 @app.delete("/vendors/{vendor_id}")
@@ -348,8 +400,10 @@ def delete_vendor(vendor_id: int, current_user: User = Depends(get_current_user)
     db_vendor = session.exec(select(Vendor).where(Vendor.id == vendor_id, Vendor.user_id == current_user.id)).first()
     if not db_vendor:
         raise HTTPException(status_code=404, detail="Vendor not found")
+    old_data = db_vendor.model_dump()
     session.delete(db_vendor)
     session.commit()
+    log_audit(session, current_user.id, "DELETE", "Vendor", vendor_id, old_val=old_data)
     return {"ok": True}
 
 # --- VENDOR BILLS ---
@@ -378,12 +432,14 @@ def update_vendor_bill(bill_id: int, bill_update: VendorBillBase, current_user: 
         raise HTTPException(status_code=404, detail="Bill not found")
     
     update_data = bill_update.dict(exclude_unset=True)
+    old_data = db_bill.model_dump()
     for key, value in update_data.items():
         setattr(db_bill, key, value)
     
     session.add(db_bill)
     session.commit()
     session.refresh(db_bill)
+    log_audit(session, current_user.id, "EDIT", "VendorBill", db_bill.id, old_val=old_data, new_val=db_bill.model_dump())
     return db_bill
 
 @app.delete("/vendor-bills/{bill_id}")
@@ -391,8 +447,10 @@ def delete_vendor_bill(bill_id: int, current_user: User = Depends(get_current_us
     db_bill = session.exec(select(VendorBill).where(VendorBill.id == bill_id, VendorBill.user_id == current_user.id)).first()
     if not db_bill:
         raise HTTPException(status_code=404, detail="Bill not found")
+    old_data = db_bill.model_dump()
     session.delete(db_bill)
     session.commit()
+    log_audit(session, current_user.id, "DELETE", "VendorBill", bill_id, old_val=old_data)
     return {"ok": True}
 
 @app.post("/vendor-bills/{bill_id}/pay", response_model=TransactionRead)
@@ -449,12 +507,14 @@ def update_transaction(transaction_id: int, transaction_update: TransactionCreat
         raise HTTPException(status_code=404, detail="Transaction not found")
     
     update_data = transaction_update.dict(exclude_unset=True)
+    old_data = db_transaction.model_dump()
     for key, value in update_data.items():
         setattr(db_transaction, key, value)
     
     session.add(db_transaction)
     session.commit()
     session.refresh(db_transaction)
+    log_audit(session, current_user.id, "EDIT", "Transaction", db_transaction.id, old_val=old_data, new_val=db_transaction.model_dump())
     return db_transaction
 
 @app.delete("/transactions/{transaction_id}")
@@ -462,8 +522,10 @@ def delete_transaction(transaction_id: int, current_user: User = Depends(get_cur
     db_transaction = session.exec(select(Transaction).where(Transaction.id == transaction_id, Transaction.user_id == current_user.id)).first()
     if not db_transaction:
         raise HTTPException(status_code=404, detail="Transaction not found")
+    old_data = db_transaction.model_dump()
     session.delete(db_transaction)
     session.commit()
+    log_audit(session, current_user.id, "DELETE", "Transaction", transaction_id, old_val=old_data)
     return {"ok": True}
 
 @app.get("/dashboard-stats")
@@ -560,6 +622,21 @@ def get_dashboard_stats(current_user: User = Depends(get_current_user), session:
         "obligations": obligations[:5], # Top 5 nearest
         "paid_employee_ids": list(set(paid_emp_ids))
     }
+
+@app.get("/metadata/categories")
+def get_categories(session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    # Fetch unique categories from multiple sources
+    tx_cats = session.exec(select(Transaction.category).where(Transaction.user_id == current_user.id)).all()
+    rec_cats = session.exec(select(RecurringExpense.category).where(RecurringExpense.user_id == current_user.id)).all()
+    vendor_cats = session.exec(select(Vendor.category).where(Vendor.user_id == current_user.id)).all()
+    
+    all_cats = set(tx_cats + rec_cats + vendor_cats)
+    
+    # Defaults
+    defaults = ['Software', 'Hardware', 'Marketing', 'Office Supplies', 'Legal', 'Contractor', 'Rent', 'Salaries', 'Utilities', 'Operations', 'Travel', 'Miscellaneous', 'Client Revenue']
+    all_cats.update(defaults)
+    
+    return sorted(list(filter(None, all_cats)))
 
 # --- WHATSAPP WEBHOOK ---
 @app.get("/webhook")
@@ -667,56 +744,217 @@ def export_transactions(current_user: User = Depends(get_current_user), session:
     
     output.seek(0)
     return StreamingResponse(iter([output.getvalue()]), media_type="text/csv", headers={"Content-Disposition": "attachment; filename=zetafin_transactions.csv"})
+# --- AI PARSING CONFIG ---
+import os
+from dotenv import load_dotenv
+load_dotenv()
+XAI_KEY = os.getenv("XAI_KEY", "")
+OPENROUTER_KEY = os.getenv("OPENROUTER_KEY", "")
+
+async def fetch_ai_parsing(csv_text: str):
+    # Try xAI (Primary)
+    xai_url = "https://api.x.ai/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {XAI_KEY}", "Content-Type": "application/json"}
+    
+    prompt = f"""
+    Extract all transactions from this CSV bank statement. Skip metadata rows.
+    CSV:
+    {csv_text[:18000]}
+    
+    Return ONLY JSON: {{"transactions": [[date, description, amount], ...]}}
+    JSON:
+    """
+    
+    async with httpx.AsyncClient() as client:
+        # 1. ATTEMPT X.AI
+        try:
+            resp = await client.post(xai_url, json={"model": "grok-beta", "messages": [{"role": "user", "content": prompt}]}, headers=headers, timeout=30.0)
+            if resp.status_code == 200:
+                data = resp.json()
+                content = data["choices"][0]["message"]["content"]
+                if "```json" in content: content = content.split("```json")[1].split("```")[0].strip()
+                raw_data = json.loads(content)
+                txs = []
+                for i, tx in enumerate(raw_data.get("transactions", [])):
+                    if isinstance(tx, (list, tuple)) and len(tx) >= 3:
+                        try:
+                            txs.append({
+                                "id": i + 1,
+                                "date": str(tx[0]),
+                                "description": str(tx[1]),
+                                "amount": float(tx[2])
+                            })
+                        except: continue
+                return {"transactions": txs}
+        except Exception as e:
+            print(f"xAI error: {e}")
+
+        # 2. ATTEMPT OPENROUTER (Backup)
+        or_url = "https://openrouter.ai/api/v1/chat/completions"
+        or_headers = {"Authorization": f"Bearer {OPENROUTER_KEY}", "Content-Type": "application/json"}
+        try:
+            resp = await client.post(or_url, json={"model": "openai/gpt-4o-mini", "messages": [{"role": "user", "content": prompt}], "response_format": {"type": "json_object"}}, headers=or_headers, timeout=30.0)
+            if resp.status_code == 200:
+                data = resp.json()
+                content = data["choices"][0]["message"]["content"]
+                raw_data = json.loads(content)
+                txs = []
+                for i, tx in enumerate(raw_data.get("transactions", [])):
+                    if isinstance(tx, (list, tuple)) and len(tx) >= 3:
+                        try:
+                            txs.append({
+                                "id": i + 1,
+                                "date": str(tx[0]),
+                                "description": str(tx[1]),
+                                "amount": float(tx[2])
+                            })
+                        except: continue
+                return {"transactions": txs}
+        except Exception as e:
+            print(f"OpenRouter error: {e}")
+            
+    return None
+
 # --- RECONCILIATION ---
 @app.post("/reconciliation/upload")
 async def upload_bank_statement(file: UploadFile = File(...), current_user: User = Depends(get_current_user)):
     content = await file.read()
+    # Try UTF-8 with BOM signature handling first, then fallback
     try:
-        text = content.decode("utf-8")
+        text = content.decode("utf-8-sig")
     except UnicodeDecodeError:
         text = content.decode("latin-1")
     
-    # Simple heuristic CSV parser
+    # TRY AI PARSING FIRST
+    ai_result = await fetch_ai_parsing(text)
+    if ai_result and ai_result.get("transactions"):
+        return ai_result
+
+    # FALLBACK: Standardize headers (case-insensitive, strip whitespace)
+    header_map = {
+        'date': ['date', 'txn date', 'transaction date', 'value date', 'booking date', 'txndate', 't_date'],
+        'description': ['description', 'particulars', 'details', 'narrative', 'remarks', 'desc', 'transaction details'],
+        'debit': ['debit', 'withdrawal', 'out', 'dr', 'withdrawal amount'],
+        'credit': ['credit', 'deposit', 'in', 'cr', 'deposit amount'],
+        'amount': ['amount', 'txn amount', 'total', 'amt', 'balance', 'available balance']
+    }
+    
+    def find_col(row_keys, target):
+        options = header_map.get(target, [])
+        for opt in options:
+            for k in row_keys:
+                if opt in k.lower().strip(): return k
+        return None
+
+    # Robust CSV parsing
     try:
-        reader = csv.DictReader(StringIO(text))
+        lines = text.splitlines()
+        # Skip junk rows at the start (metadata like account numbers, opening balances)
+        header_index = 0
+        for i, line in enumerate(lines[:15]): # Check first 15 lines
+            sample_keys = [k.lower().strip() for k in line.split(',')]
+            # If line has at least 2 distinct keys from our map, it's likely the header
+            matches = 0
+            for cat, opts in header_map.items():
+                if any(opt in " ".join(sample_keys) for opt in opts):
+                    matches += 1
+            if matches >= 3: # Found it
+                header_index = i
+                break
+        
+        valid_text = "\n".join(lines[header_index:])
+        reader = csv.DictReader(StringIO(valid_text))
         parsed_rows = []
         for row in reader:
-            row_lower = {k.lower().strip() if isinstance(k, str) else '': v.strip() if isinstance(v, str) else v for k,v in row.items()}
+            row_keys = list(row.keys())
+            # Handle potential leading/trailing spaces in keys
+            row = { (k.strip() if k else ""): v for k, v in row.items() }
+            row_keys = list(row.keys())
+
+            date_key = find_col(row_keys, 'date')
+            desc_key = find_col(row_keys, 'description')
+            debit_key = find_col(row_keys, 'debit')
+            credit_key = find_col(row_keys, 'credit')
+            amt_key = find_col(row_keys, 'amount')
             
-            date_val = row_lower.get('date', row_lower.get('transaction date', ''))
-            desc_val = row_lower.get('description', row_lower.get('particulars', row_lower.get('details', '')))
+            date_val = row.get(date_key, '') if date_key else ''
+            desc_val = row.get(desc_key, '') if desc_key else ''
             
-            debit_str = row_lower.get('debit', '0').replace(',', '') or '0'
-            credit_str = row_lower.get('credit', '0').replace(',', '') or '0'
+            if not date_val and not desc_val: continue
             
-            if not date_val and not desc_val:
-                continue
-                
             try:
-                d_amt = float(debit_str)
-                c_amt = float(credit_str)
-            except ValueError:
-                continue
+                def clean_float(val):
+                    if not val: return 0
+                    # Remove currency symbols, commas, and handle whitespace
+                    cleaned = str(val).replace(',', '').replace('PKR', '').replace('RS', '').strip()
+                    return float(cleaned) if cleaned else 0
+
+                d_amt = clean_float(row.get(debit_key, '0')) if debit_key else 0
+                c_amt = clean_float(row.get(credit_key, '0')) if credit_key else 0
                 
-            amount = c_amt - d_amt # Positive = Income, Negative = Expense
-            
-            if amount == 0:
-                amt_str = row_lower.get('amount', '0').replace(',', '')
-                try: 
-                    amount = float(amt_str)
-                except ValueError:
-                    pass
-            
-            if amount != 0:
-                parsed_rows.append({
-                    "id": len(parsed_rows) + 1,
-                    "date": date_val,
-                    "description": desc_val,
-                    "amount": amount
-                })
+                amount = c_amt - d_amt
+                # If credit/debit logic results in 0, fallback to amount column
+                # but AVOID using "Balance" as an amount
+                if amount == 0 and amt_key and 'balance' not in amt_key.lower():
+                    amount = clean_float(row.get(amt_key, '0'))
+                
+                if amount != 0:
+                    parsed_rows.append({
+                        "id": len(parsed_rows) + 1,
+                        "date": date_val,
+                        "description": desc_val,
+                        "amount": amount
+                    })
+            except:
+                continue
         return {"transactions": parsed_rows}
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to parse CSV: {str(e)}")
+
+# --- AI INSIGHTS ---
+@app.post("/ai/query")
+async def ai_query(request: Request, current_user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+    body = await request.json()
+    query = body.get("query")
+    if not query: raise HTTPException(status_code=400, detail="Missing query")
+    answer = await query_ai_insights(query, session, current_user.id)
+    return {"answer": answer}
+
+@app.get("/ai/ceo-summary")
+def ai_summary(current_user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+    return get_ceo_summary(session, current_user.id)
+
+# --- BUDGETS ---
+@app.get("/budgets", response_model=List[BudgetRead])
+def get_budgets(current_user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+    return session.exec(select(Budget).where(Budget.user_id == current_user.id)).all()
+
+@app.post("/budgets", response_model=BudgetRead)
+def create_budget(budget: BudgetCreate, current_user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+    # Check if exists for month/category
+    existing = session.exec(select(Budget).where(
+        Budget.user_id == current_user.id,
+        Budget.category == budget.category,
+        Budget.month == budget.month
+    )).first()
+    
+    if existing:
+        existing.amount = budget.amount
+        session.add(existing)
+        session.commit()
+        session.refresh(existing)
+        return existing
+        
+    db_budget = Budget(**budget.dict(), user_id=current_user.id)
+    session.add(db_budget)
+    session.commit()
+    session.refresh(db_budget)
+    return db_budget
+
+# --- AUDIT LOGS ---
+@app.get("/audit-logs", response_model=List[AuditLogRead])
+def get_audit_logs(current_user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+    return session.exec(select(AuditLog).where(AuditLog.user_id == current_user.id).order_by(AuditLog.timestamp.desc()).limit(100)).all()
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
