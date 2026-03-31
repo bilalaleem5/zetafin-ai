@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { 
   LayoutDashboard, ArrowLeftRight, Users, UserCheck, 
-  LogOut, Menu, MessageSquare, Bell
+  LogOut, Menu, MessageSquare, Bell, Store
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 
@@ -12,6 +12,7 @@ const NAV = [
   { to: '/clients',     label: 'Clients',      icon: Users },
   { to: '/employees',   label: 'Team',         icon: UserCheck },
   { to: '/expenses',    label: 'Expenses',     icon: ArrowLeftRight },
+  { to: '/vendors',     label: 'Vendors',      icon: Store },
 ]
 
 export default function Layout() {

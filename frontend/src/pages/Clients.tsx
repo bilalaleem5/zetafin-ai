@@ -3,7 +3,7 @@ import { motion } from 'framer-motion'
 import { Plus, Users, CheckCircle2, Clock, AlertTriangle, X, Edit2, Trash2 } from 'lucide-react'
 import api from '../api'
 
-interface Milestone { id: number; title: string; amount: number; due_date: string; status: string }
+interface Milestone { id: number; title: string; amount: number; due_date: string; status: string; tax_amount: number; tax_type: string; }
 interface Client { id: number; name: string; contract_value: number; payment_terms: string; status: string }
 
 const statusStyle: Record<string, string> = {
@@ -29,7 +29,7 @@ export default function Clients() {
   
   const [milestones, setMilestones] = useState<Milestone[]>([])
   const [form, setForm] = useState({ name: '', contract_value: '', payment_terms: 'Net 30' })
-  const [mForm, setMForm] = useState({ title: '', amount: '', due_date: '' })
+  const [mForm, setMForm] = useState({ title: '', amount: '', tax_amount: '0', tax_type: '', due_date: '' })
   const [saving, setSaving] = useState(false)
 
   const load = async () => {
@@ -69,12 +69,13 @@ export default function Clients() {
     e.preventDefault(); if (!selectedClient) return
     setSaving(true)
     try {
+      const payload = { ...mForm, amount: parseFloat(mForm.amount), tax_amount: mForm.tax_amount ? parseFloat(mForm.tax_amount) : 0 }
       if (editMilestone) {
-        await api.patch(`/milestones/${editMilestone.id}`, { ...mForm, amount: parseFloat(mForm.amount) })
+        await api.patch(`/milestones/${editMilestone.id}`, payload)
       } else {
-        await api.post(`/clients/${selectedClient.id}/milestones/`, { ...mForm, amount: parseFloat(mForm.amount) })
+        await api.post(`/clients/${selectedClient.id}/milestones/`, payload)
       }
-      setShowMilestoneModal(false); setEditMilestone(null); setMForm({ title: '', amount: '', due_date: '' })
+      setShowMilestoneModal(false); setEditMilestone(null); setMForm({ title: '', amount: '', tax_amount: '0', tax_type: '', due_date: '' })
       loadMilestones(selectedClient.id)
     } catch { alert('Error saving milestone') } finally { setSaving(false) }
   }
@@ -102,7 +103,7 @@ export default function Clients() {
 
   const openEditMilestone = (m: Milestone) => {
     setEditMilestone(m)
-    setMForm({ title: m.title, amount: m.amount.toString(), due_date: m.due_date.split('T')[0] })
+    setMForm({ title: m.title, amount: m.amount.toString(), tax_amount: (m.tax_amount || 0).toString(), tax_type: m.tax_type || '', due_date: m.due_date.split('T')[0] })
     setShowMilestoneModal(true)
   }
 
@@ -234,8 +235,23 @@ export default function Clients() {
                 <input className="input" placeholder="Initial Advance" value={mForm.title} onChange={e => setMForm({...mForm, title: e.target.value})} required />
               </div>
               <div className="input-group">
-                <label className="input-label">Amount (PKR)</label>
+                <label className="input-label">Gross Amount (PKR)</label>
                 <input className="input" type="number" placeholder="50000" value={mForm.amount} onChange={e => setMForm({...mForm, amount: e.target.value})} required />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="input-group">
+                  <label className="input-label">Tax Withheld (PKR)</label>
+                  <input className="input" type="number" placeholder="0" value={mForm.tax_amount} onChange={e => setMForm({...mForm, tax_amount: e.target.value})} />
+                </div>
+                <div className="input-group">
+                  <label className="input-label">Tax Type</label>
+                  <select className="input" value={mForm.tax_type} onChange={e => setMForm({...mForm, tax_type: e.target.value})}>
+                    <option value="">None</option>
+                    <option value="WHT">WHT</option>
+                    <option value="GST">GST</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
               </div>
               <div className="input-group">
                 <label className="input-label">Due Date</label>

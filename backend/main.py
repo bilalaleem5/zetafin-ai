@@ -9,7 +9,7 @@ import os
 from datetime import datetime
 
 from database import engine, get_session, create_db_and_tables
-from models import User, Client, Employee, Transaction, Milestone, RecurringExpense
+from models import User, Client, Employee, Transaction, Milestone, RecurringExpense, Vendor, VendorBill
 from schemas import (
     UserCreate, UserRead, Token, 
     ClientCreate, ClientRead, 
@@ -17,6 +17,7 @@ from schemas import (
     TransactionCreate, TransactionRead,
     MilestoneCreate, MilestoneRead,
     RecurringExpenseCreate, RecurringExpenseRead,
+    VendorCreate, VendorRead, VendorBillBase, VendorBillCreate, VendorBillRead,
     BalanceUpdate
 )
 from auth import (
@@ -184,12 +185,14 @@ def receive_milestone_payment(milestone_id: int, current_user: User = Depends(ge
     milestone.status = "Paid"
     session.add(milestone)
     
-    # Create income transaction
+    net_amount = milestone.amount - milestone.tax_amount
     new_tx = Transaction(
         user_id=current_user.id,
         client_id=milestone.client_id,
         milestone_id=milestone.id,
-        amount=milestone.amount,
+        amount=net_amount,
+        tax_amount=milestone.tax_amount,
+        tax_type=milestone.tax_type,
         type="income",
         category="Client Revenue",
         description=f"Payment for milestone: {milestone.title}",
@@ -303,6 +306,118 @@ def pay_employee_salary(employee_id: int, current_user: User = Depends(get_curre
         category="Salaries",
         description=f"Salary Payment - {employee.name} ({month_year})",
         date=today
+    )
+    session.add(new_tx)
+    session.commit()
+    session.refresh(new_tx)
+    return new_tx
+
+# --- VENDORS ---
+@app.post("/vendors/", response_model=VendorRead)
+def create_vendor(vendor: VendorCreate, current_user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+    db_vendor = Vendor(**vendor.dict(), user_id=current_user.id)
+    session.add(db_vendor)
+    session.commit()
+    session.refresh(db_vendor)
+    return db_vendor
+
+@app.get("/vendors/", response_model=List[VendorRead])
+def read_vendors(current_user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+    return session.exec(select(Vendor).where(Vendor.user_id == current_user.id)).all()
+
+@app.patch("/vendors/{vendor_id}", response_model=VendorRead)
+def update_vendor(vendor_id: int, vendor_update: VendorCreate, current_user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+    db_vendor = session.exec(select(Vendor).where(Vendor.id == vendor_id, Vendor.user_id == current_user.id)).first()
+    if not db_vendor:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+    
+    update_data = vendor_update.dict(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(db_vendor, key, value)
+    
+    session.add(db_vendor)
+    session.commit()
+    session.refresh(db_vendor)
+    return db_vendor
+
+@app.delete("/vendors/{vendor_id}")
+def delete_vendor(vendor_id: int, current_user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+    db_vendor = session.exec(select(Vendor).where(Vendor.id == vendor_id, Vendor.user_id == current_user.id)).first()
+    if not db_vendor:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+    session.delete(db_vendor)
+    session.commit()
+    return {"ok": True}
+
+# --- VENDOR BILLS ---
+@app.post("/vendors/{vendor_id}/bills/", response_model=VendorBillRead)
+def create_vendor_bill(vendor_id: int, bill: VendorBillCreate, current_user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+    db_vendor = session.exec(select(Vendor).where(Vendor.id == vendor_id, Vendor.user_id == current_user.id)).first()
+    if not db_vendor:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+    # ensure bill's vendor matches url param, or trust the url param
+    bill_data = bill.dict()
+    bill_data["vendor_id"] = vendor_id
+    db_bill = VendorBill(**bill_data, user_id=current_user.id)
+    session.add(db_bill)
+    session.commit()
+    session.refresh(db_bill)
+    return db_bill
+
+@app.get("/vendors/{vendor_id}/bills/", response_model=List[VendorBillRead])
+def read_vendor_bills(vendor_id: int, current_user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+    return session.exec(select(VendorBill).where(VendorBill.vendor_id == vendor_id, VendorBill.user_id == current_user.id)).all()
+
+@app.patch("/vendor-bills/{bill_id}", response_model=VendorBillRead)
+def update_vendor_bill(bill_id: int, bill_update: VendorBillBase, current_user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+    db_bill = session.exec(select(VendorBill).where(VendorBill.id == bill_id, VendorBill.user_id == current_user.id)).first()
+    if not db_bill:
+        raise HTTPException(status_code=404, detail="Bill not found")
+    
+    update_data = bill_update.dict(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(db_bill, key, value)
+    
+    session.add(db_bill)
+    session.commit()
+    session.refresh(db_bill)
+    return db_bill
+
+@app.delete("/vendor-bills/{bill_id}")
+def delete_vendor_bill(bill_id: int, current_user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+    db_bill = session.exec(select(VendorBill).where(VendorBill.id == bill_id, VendorBill.user_id == current_user.id)).first()
+    if not db_bill:
+        raise HTTPException(status_code=404, detail="Bill not found")
+    session.delete(db_bill)
+    session.commit()
+    return {"ok": True}
+
+@app.post("/vendor-bills/{bill_id}/pay", response_model=TransactionRead)
+def pay_vendor_bill(bill_id: int, current_user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+    bill = session.exec(select(VendorBill).where(VendorBill.id == bill_id, VendorBill.user_id == current_user.id)).first()
+    if not bill:
+        raise HTTPException(status_code=404, detail="Bill not found")
+    if bill.status == "Paid":
+        raise HTTPException(status_code=400, detail="Bill already paid")
+    
+    bill.status = "Paid"
+    session.add(bill)
+    
+    # Create expense transaction
+    vendor = session.exec(select(Vendor).where(Vendor.id == bill.vendor_id)).first()
+    
+    net_amount = bill.amount - bill.tax_amount
+    new_tx = Transaction(
+        user_id=current_user.id,
+        vendor_id=bill.vendor_id,
+        vendor_bill_id=bill.id,
+        amount=net_amount,
+        tax_amount=bill.tax_amount,
+        tax_type=bill.tax_type,
+        type="expense",
+        category="Accounts Payable",
+        description=f"Bill Payment: {vendor.name} - {bill.title}",
+        date=datetime.utcnow()
     )
     session.add(new_tx)
     session.commit()

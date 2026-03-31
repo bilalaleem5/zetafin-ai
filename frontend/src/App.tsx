@@ -8,6 +8,7 @@ import Transactions from './pages/Transactions'
 import Clients from './pages/Clients'
 import Employees from './pages/Employees'
 import Expenses from './pages/Expenses'
+import Vendors from './pages/Vendors'
 import Layout from './components/Layout'
 
 const isAuth = () => !!localStorage.getItem('zetamize_token')
@@ -28,6 +29,7 @@ export default function App() {
           <Route path="/clients"      element={<Clients />} />
           <Route path="/employees"    element={<Employees />} />
           <Route path="/expenses"     element={<Expenses />} />
+          <Route path="/vendors"      element={<Vendors />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

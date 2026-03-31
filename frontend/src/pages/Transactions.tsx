@@ -5,7 +5,8 @@ import api from '../api'
 
 interface Tx {
   id: number; amount: number; category: string;
-  description: string; type: string; date: string
+  description: string; type: string; date: string;
+  tax_amount: number; tax_type: string;
 }
 
 const INCOME_CATS = ['Client Revenue', 'Project Work', 'Retainer', 'Other']
@@ -16,7 +17,7 @@ export default function Transactions() {
   const [loading, setLoading] = useState(true)
   const [q, setQ]             = useState('')
   const [showModal, setShowModal] = useState(false)
-  const [form, setForm]       = useState({ amount: '', category: 'Client Revenue', description: '', type: 'income' })
+  const [form, setForm]       = useState({ amount: '', tax_amount: '0', tax_type: '', category: 'Client Revenue', description: '', type: 'income' })
   const [saving, setSaving]   = useState(false)
 
   const load = async () => {
@@ -30,8 +31,14 @@ export default function Transactions() {
   const save = async (e: React.FormEvent) => {
     e.preventDefault(); setSaving(true)
     try {
-      await api.post('/transactions/', { ...form, amount: parseFloat(form.amount), date: new Date().toISOString() })
-      setShowModal(false); setForm({ amount: '', category: 'Client Revenue', description: '', type: 'income' })
+      const payload = { 
+        ...form, 
+        amount: parseFloat(form.amount), 
+        tax_amount: form.tax_amount ? parseFloat(form.tax_amount) : 0,
+        date: new Date().toISOString() 
+      }
+      await api.post('/transactions/', payload)
+      setShowModal(false); setForm({ amount: '', tax_amount: '0', tax_type: '', category: 'Client Revenue', description: '', type: 'income' })
       load()
     } catch { /* ignore */ }
     finally { setSaving(false) }
@@ -111,8 +118,9 @@ export default function Transactions() {
                   <p className="font-medium truncate">{t.description}</p>
                   <p className="text-xs text-text-muted">{new Date(t.date).toLocaleDateString('en-PK', { day: 'numeric', month: 'short', year: 'numeric' })} · {t.category}</p>
                 </div>
-                <span className={`num font-bold flex-shrink-0 ${t.type === 'income' ? 'text-green' : 'text-red'}`}>
+                <span className={`num font-bold flex-shrink-0 text-right ${t.type === 'income' ? 'text-green' : 'text-red'}`}>
                   {t.type === 'income' ? '+' : '-'}PKR {t.amount.toLocaleString()}
+                  {t.tax_amount > 0 && <span className="block text-[9px] text-text-muted font-normal mt-0.5 opacity-60">incl. {t.tax_type} Tax {t.tax_amount.toLocaleString()}</span>}
                 </span>
               </motion.div>
             ))}
@@ -153,8 +161,23 @@ export default function Transactions() {
                 ))}
               </div>
               <div className="input-group">
-                <label className="input-label">Amount (PKR)</label>
+                <label className="input-label">Net Amount (PKR) <span className="text-[10px] text-text-muted ml-0.5 normal-case tracking-normal">(Actual bank effect)</span></label>
                 <input className="input" type="number" placeholder="150000" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} required />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="input-group">
+                  <label className="input-label">Tax Withheld</label>
+                  <input className="input" type="number" placeholder="0" value={form.tax_amount} onChange={e => setForm({...form, tax_amount: e.target.value})} />
+                </div>
+                <div className="input-group">
+                  <label className="input-label">Tax Type</label>
+                  <select className="input" value={form.tax_type} onChange={e => setForm({...form, tax_type: e.target.value})}>
+                    <option value="">None</option>
+                    <option value="WHT">WHT</option>
+                    <option value="GST">GST</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
               </div>
               <div className="input-group">
                 <label className="input-label">Category</label>
