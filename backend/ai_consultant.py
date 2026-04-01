@@ -3,6 +3,7 @@ from models import Transaction, Milestone, VendorBill, RecurringExpense, User, A
 from datetime import datetime, timedelta
 import json
 import httpx
+import google.generativeai as genai
 
 # Shared keys from main.py
 import os
@@ -12,6 +13,10 @@ load_dotenv()
 
 XAI_KEY = os.getenv("XAI_KEY", "")
 OPENROUTER_KEY = os.getenv("OPENROUTER_KEY", "")
+GEMINI_KEY = os.getenv("GEMINI_KEY", "")
+
+if GEMINI_KEY:
+    genai.configure(api_key=GEMINI_KEY)
 
 def get_ceo_summary(db: Session, user_id: int):
     # 1. Financial totals
@@ -77,35 +82,45 @@ async def query_ai_insights(query: str, db: Session, user_id: int):
     Strategic Insight:
     """
     
-    # Reuse Grok-beta (Primary) or Mini (Fallback) logic
-    async with httpx.AsyncClient() as client:
+    # 1. ATTEMPT GEMINI (Fast & Large Context)
+    if GEMINI_KEY:
         try:
-            # Try xAI
-            resp = await client.post(
-                "https://api.x.ai/v1/chat/completions",
-                json={"model": "grok-beta", "messages": [{"role": "user", "content": prompt}]},
-                headers={"Authorization": f"Bearer {XAI_KEY}", "Content-Type": "application/json"},
-                timeout=20.0
-            )
-            if resp.status_code == 200:
-                return resp.json()["choices"][0]["message"]["content"]
-        except:
-            pass
-            
-        try:
-            # Try OpenRouter
-            resp = await client.post(
-                "https://openrouter.ai/api/v1/chat/completions",
-                json={"model": "openai/gpt-4o-mini", "messages": [{"role": "user", "content": prompt}]},
-                headers={"Authorization": f"Bearer {OPENROUTER_KEY}", "Content-Type": "application/json"},
-                timeout=20.0
-            )
-            if resp.status_code == 200:
-                return resp.json()["choices"][0]["message"]["content"]
-        except:
-            return "ZetaFin AI is currently resting. Please try again in 1 minute."
+            model = genai.GenerativeModel('gemini-1.5-flash')
+            response = model.generate_content(prompt)
+            if response.text:
+                return response.text
+        except Exception as e:
+            print(f"Gemini Consultant Error: {e}")
 
-    return "ZetaFin AI is taking a coffee break. Please try again later."
+    # 2. ATTEMPT GROK / OPENROUTER
+    async with httpx.AsyncClient() as client:
+        if XAI_KEY:
+            try:
+                resp = await client.post(
+                    "https://api.x.ai/v1/chat/completions",
+                    json={"model": "grok-beta", "messages": [{"role": "user", "content": prompt}]},
+                    headers={"Authorization": f"Bearer {XAI_KEY}", "Content-Type": "application/json"},
+                    timeout=20.0
+                )
+                if resp.status_code == 200:
+                    return resp.json()["choices"][0]["message"]["content"]
+            except:
+                pass
+            
+        if OPENROUTER_KEY:
+            try:
+                resp = await client.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    json={"model": "openai/gpt-4o-mini", "messages": [{"role": "user", "content": prompt}]},
+                    headers={"Authorization": f"Bearer {OPENROUTER_KEY}", "Content-Type": "application/json"},
+                    timeout=20.0
+                )
+                if resp.status_code == 200:
+                    return resp.json()["choices"][0]["message"]["content"]
+            except:
+                pass
+
+    return "ZetaFin AI is currently resting. Please try again in 1 minute."
 
 def log_audit(db: Session, user_id: int, action: str, table: str, record_id: int, old_val=None, new_val=None):
     log = AuditLog(

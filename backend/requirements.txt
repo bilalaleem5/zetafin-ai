@@ -11,3 +11,5 @@ python-dotenv
 pytest
 email-validator
 httpx
+google-generativeai
+psycopg2-binary

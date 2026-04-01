@@ -12,6 +12,7 @@ import json
 import httpx
 from io import StringIO
 from datetime import datetime
+import google.generativeai as genai
 
 from database import engine, get_session, create_db_and_tables
 from models import User, Client, Employee, Transaction, Milestone, RecurringExpense, Vendor, VendorBill, AuditLog, Budget
@@ -30,9 +31,10 @@ from auth import (
     get_password_hash, verify_password, 
     create_access_token, get_current_user
 )
-from whatsapp import parse_whatsapp_message
+from whatsapp import parse_whatsapp_message, send_whatsapp_message
 from services import process_automation_for_user
 from datetime import datetime, timedelta
+from parsers import get_bank_parser
 
 app = FastAPI(title="ZetaMize API")
 
@@ -365,8 +367,8 @@ def get_vendors(session: Session = Depends(get_session), current_user: User = De
     
     results = []
     for v in vendors:
-        # Calculate totals
-        bills_statement = select(VendorBill).where(VendorBill.vendor_id == v.id)
+        # Calculate totals - STRICTLY SCOPED to current_user
+        bills_statement = select(VendorBill).where(VendorBill.vendor_id == v.id, VendorBill.user_id == current_user.id)
         bills = session.exec(bills_statement).all()
         total_paid = sum(b.amount for b in bills if b.status == "Paid")
         total_outstanding = sum(b.amount for b in bills if b.status != "Paid")
@@ -465,7 +467,9 @@ def pay_vendor_bill(bill_id: int, current_user: User = Depends(get_current_user)
     session.add(bill)
     
     # Create expense transaction
-    vendor = session.exec(select(Vendor).where(Vendor.id == bill.vendor_id)).first()
+    vendor = session.exec(select(Vendor).where(Vendor.id == bill.vendor_id, Vendor.user_id == current_user.id)).first()
+    if not vendor:
+        raise HTTPException(status_code=404, detail="Vendor not found")
     
     net_amount = bill.amount - bill.tax_amount
     new_tx = Transaction(
@@ -529,26 +533,43 @@ def delete_transaction(transaction_id: int, current_user: User = Depends(get_cur
     return {"ok": True}
 
 @app.get("/dashboard-stats")
-def get_dashboard_stats(current_user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+def get_dashboard_stats(period: str = "this_month", current_user: User = Depends(get_current_user), session: Session = Depends(get_session)):
     # Trigger automation on dashboard load
     process_automation_for_user(session, current_user)
     
     now = datetime.utcnow()
-    start_of_month = datetime(now.year, now.month, 1)
+    
+    if period == "last_month":
+        y, m = (now.year - 1, 12) if now.month == 1 else (now.year, now.month - 1)
+        start_date = datetime(y, m, 1)
+        if m == 12: end_date = datetime(y + 1, 1, 1)
+        else: end_date = datetime(y, m + 1, 1)
+        period_name = start_date.strftime("%B %Y")
+    elif period == "this_year":
+        start_date = datetime(now.year, 1, 1)
+        end_date = now + timedelta(days=1)
+        period_name = f"Year {now.year}"
+    elif period == "all_time":
+        start_date = datetime(1970, 1, 1)
+        end_date = now + timedelta(days=1)
+        period_name = "All Time"
+    else: # "this_month"
+        start_date = datetime(now.year, now.month, 1)
+        end_date = now + timedelta(days=1)
+        period_name = now.strftime("%B %Y")
     
     # All transactions for history and trends
     all_transactions = session.exec(select(Transaction).where(Transaction.user_id == current_user.id)).all()
     
-    # This month's data
     def ensure_dt(d):
         if isinstance(d, str):
             try: return datetime.fromisoformat(d.replace('Z', '+00:00'))
             except: return datetime.utcnow() # Fallback
         return d
 
-    this_month_txs = [t for t in all_transactions if ensure_dt(t.date) >= start_of_month]
-    total_income = sum(t.amount for t in this_month_txs if t.type == "income")
-    total_expense = sum(t.amount for t in this_month_txs if t.type == "expense")
+    filtered_txs = [t for t in all_transactions if start_date <= ensure_dt(t.date) < end_date]
+    total_income = sum(t.amount for t in filtered_txs if t.type == "income")
+    total_expense = sum(t.amount for t in filtered_txs if t.type == "expense")
     net_position = total_income - total_expense
     
     # 1. CASH RUNWAY CALCULATION
@@ -561,8 +582,13 @@ def get_dashboard_stats(current_user: User = Depends(get_current_user), session:
     # 2. 6-MONTH TREND DATA
     trends = []
     for i in range(5, -1, -1):
-        month_date = now - timedelta(days=i*30)
-        m_start = datetime(month_date.year, month_date.month, 1)
+        m_start = datetime(now.year, now.month, 1)
+        for _ in range(i):
+            if m_start.month == 1:
+                m_start = datetime(m_start.year - 1, 12, 1)
+            else:
+                m_start = datetime(m_start.year, m_start.month - 1, 1)
+                
         if m_start.month == 12:
             m_next = datetime(m_start.year + 1, 1, 1)
         else:
@@ -594,7 +620,9 @@ def get_dashboard_stats(current_user: User = Depends(get_current_user), session:
     
     employees = session.exec(select(Employee).where(Employee.user_id == current_user.id)).all()
     # Check if salaries already paid this month
-    paid_emp_ids = [t.employee_id for t in this_month_txs if t.type == "expense" and t.employee_id]
+    this_month_start = datetime(now.year, now.month, 1)
+    this_month_txs_for_obs = [t for t in all_transactions if ensure_dt(t.date) >= this_month_start]
+    paid_emp_ids = [t.employee_id for t in this_month_txs_for_obs if t.type == "expense" and t.employee_id]
     unpaid_employees = [e for e in employees if e.id not in paid_emp_ids]
     
     obligations = []
@@ -615,11 +643,20 @@ def get_dashboard_stats(current_user: User = Depends(get_current_user), session:
         "total_income": total_income,
         "total_expense": total_expense,
         "currency": current_user.currency,
-        "period_name": now.strftime("%B %Y"),
+        "period_name": period_name,
         "bank_balance": current_user.bank_balance,
         "runway_weeks": round(runway_weeks, 1),
         "trends": trends,
         "obligations": obligations[:5], # Top 5 nearest
+        "overdue_receivables": [
+            {
+                "client": session.exec(select(Client).where(Client.id == m.client_id)).first().name,
+                "title": m.title,
+                "amount": m.amount,
+                "days_late": (now - ensure_dt(m.due_date)).days
+            }
+            for m in pending_milestones if ensure_dt(m.due_date) < now
+        ],
         "paid_employee_ids": list(set(paid_emp_ids))
     }
 
@@ -676,8 +713,10 @@ async def handle_whatsapp_message(request: Request, session: Session = Depends(g
         result = parse_whatsapp_message(message_text, user, session)
         
         if result:
+            confirmation_text = result.get("confirmation", "Command processed.")
+            
             if "query_result" in result:
-                pass
+                confirmation_text = result.get("text", confirmation_text)
             elif "type" in result:
                 new_transaction = Transaction(
                     user_id=user.id,
@@ -690,6 +729,10 @@ async def handle_whatsapp_message(request: Request, session: Session = Depends(g
                 )
                 session.add(new_transaction)
                 session.commit()
+            
+            # SEND REAL CONFIRMATION BACK
+            import asyncio
+            asyncio.create_task(send_whatsapp_message(sender_number, confirmation_text))
         
         return {"status": "success"}
     except Exception as e:
@@ -750,68 +793,102 @@ from dotenv import load_dotenv
 load_dotenv()
 XAI_KEY = os.getenv("XAI_KEY", "")
 OPENROUTER_KEY = os.getenv("OPENROUTER_KEY", "")
+GEMINI_KEY = os.getenv("GEMINI_KEY", "")
+
+# Configure Gemini
+if GEMINI_KEY:
+    genai.configure(api_key=GEMINI_KEY)
 
 async def fetch_ai_parsing(csv_text: str):
-    # Try xAI (Primary)
+    prompt = f"""
+    You are a bank statement parser. Extract all transactions from this CSV text.
+    Return ONLY a JSON object with a 'transactions' key. 
+    Each transaction in the list should be [date, description, amount].
+    Negative amounts are expenses, positive are income.
+    CSV Data:
+    {csv_text[:20000]}
+    
+    JSON Output Example:
+    {{"transactions": [["2024-03-01", "Ali Traders Payment", 5000.0], ["2024-03-05", "Office Rent", -15000.0]]}}
+    """
+
+    # 1. ATTEMPT GEMINI (Fastest contexts)
+    if GEMINI_KEY:
+        try:
+            model = genai.GenerativeModel('gemini-1.5-flash')
+            response = model.generate_content(prompt)
+            content = response.text
+            if "```json" in content: content = content.split("```json")[1].split("```")[0].strip()
+            # Basic cleanup if GEMINI returns just the string
+            content = content.replace("```", "").strip()
+            raw_data = json.loads(content)
+            txs = []
+            for i, tx in enumerate(raw_data.get("transactions", [])):
+                if isinstance(tx, (list, tuple)) and len(tx) >= 3:
+                    try:
+                        txs.append({
+                            "id": i + 1,
+                            "date": str(tx[0]),
+                            "description": str(tx[1]),
+                            "amount": float(tx[2])
+                        })
+                    except: continue
+            if txs: return {"transactions": txs}
+        except Exception as e:
+            print(f"Gemini error: {e}")
+
+    # 2. ATTEMPT X.AI (Grok)
     xai_url = "https://api.x.ai/v1/chat/completions"
     headers = {"Authorization": f"Bearer {XAI_KEY}", "Content-Type": "application/json"}
     
-    prompt = f"""
-    Extract all transactions from this CSV bank statement. Skip metadata rows.
-    CSV:
-    {csv_text[:18000]}
-    
-    Return ONLY JSON: {{"transactions": [[date, description, amount], ...]}}
-    JSON:
-    """
-    
     async with httpx.AsyncClient() as client:
-        # 1. ATTEMPT X.AI
-        try:
-            resp = await client.post(xai_url, json={"model": "grok-beta", "messages": [{"role": "user", "content": prompt}]}, headers=headers, timeout=30.0)
-            if resp.status_code == 200:
-                data = resp.json()
-                content = data["choices"][0]["message"]["content"]
-                if "```json" in content: content = content.split("```json")[1].split("```")[0].strip()
-                raw_data = json.loads(content)
-                txs = []
-                for i, tx in enumerate(raw_data.get("transactions", [])):
-                    if isinstance(tx, (list, tuple)) and len(tx) >= 3:
-                        try:
-                            txs.append({
-                                "id": i + 1,
-                                "date": str(tx[0]),
-                                "description": str(tx[1]),
-                                "amount": float(tx[2])
-                            })
-                        except: continue
-                return {"transactions": txs}
-        except Exception as e:
-            print(f"xAI error: {e}")
+        if XAI_KEY:
+            try:
+                resp = await client.post(xai_url, json={"model": "grok-beta", "messages": [{"role": "user", "content": prompt}]}, headers=headers, timeout=25.0)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    content = data["choices"][0]["message"]["content"]
+                    if "```json" in content: content = content.split("```json")[1].split("```")[0].strip()
+                    raw_data = json.loads(content)
+                    txs = []
+                    for i, tx in enumerate(raw_data.get("transactions", [])):
+                        if isinstance(tx, (list, tuple)) and len(tx) >= 3:
+                            try:
+                                txs.append({
+                                    "id": i + 1,
+                                    "date": str(tx[0]),
+                                    "description": str(tx[1]),
+                                    "amount": float(tx[2])
+                                })
+                            except: continue
+                    return {"transactions": txs}
+            except Exception as e:
+                print(f"xAI error: {e}")
 
-        # 2. ATTEMPT OPENROUTER (Backup)
-        or_url = "https://openrouter.ai/api/v1/chat/completions"
-        or_headers = {"Authorization": f"Bearer {OPENROUTER_KEY}", "Content-Type": "application/json"}
-        try:
-            resp = await client.post(or_url, json={"model": "openai/gpt-4o-mini", "messages": [{"role": "user", "content": prompt}], "response_format": {"type": "json_object"}}, headers=or_headers, timeout=30.0)
-            if resp.status_code == 200:
-                data = resp.json()
-                content = data["choices"][0]["message"]["content"]
-                raw_data = json.loads(content)
-                txs = []
-                for i, tx in enumerate(raw_data.get("transactions", [])):
-                    if isinstance(tx, (list, tuple)) and len(tx) >= 3:
-                        try:
-                            txs.append({
-                                "id": i + 1,
-                                "date": str(tx[0]),
-                                "description": str(tx[1]),
-                                "amount": float(tx[2])
-                            })
-                        except: continue
-                return {"transactions": txs}
-        except Exception as e:
-            print(f"OpenRouter error: {e}")
+        # 3. ATTEMPT OPENROUTER (Backup)
+        if OPENROUTER_KEY:
+            or_url = "https://openrouter.ai/api/v1/chat/completions"
+            or_headers = {"Authorization": f"Bearer {OPENROUTER_KEY}", "Content-Type": "application/json"}
+            try:
+                resp = await client.post(or_url, json={"model": "openai/gpt-4o-mini", "messages": [{"role": "user", "content": prompt}], "response_format": {"type": "json_object"}}, headers=or_headers, timeout=25.0)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    content = data["choices"][0]["message"]["content"]
+                    raw_data = json.loads(content)
+                    txs = []
+                    for i, tx in enumerate(raw_data.get("transactions", [])):
+                        if isinstance(tx, (list, tuple)) and len(tx) >= 3:
+                            try:
+                                txs.append({
+                                    "id": i + 1,
+                                    "date": str(tx[0]),
+                                    "description": str(tx[1]),
+                                    "amount": float(tx[2])
+                                })
+                            except: continue
+                    return {"transactions": txs}
+            except Exception as e:
+                print(f"OpenRouter error: {e}")
             
     return None
 
@@ -825,7 +902,18 @@ async def upload_bank_statement(file: UploadFile = File(...), current_user: User
     except UnicodeDecodeError:
         text = content.decode("latin-1")
     
-    # TRY AI PARSING FIRST
+    # TRY DETERMINISTIC PARSERS FIRST (10ms speed, 0 cost)
+    parser_func = get_bank_parser(text)
+    if parser_func:
+        print(f"DEBUG: Using deterministic parser: {parser_func.__name__}")
+        extracted_rows = parser_func(text)
+        if extracted_rows:
+            return {"transactions": [
+                {"id": i+1, "date": r["date"], "description": r["description"], "amount": r["amount"]}
+                for i, r in enumerate(extracted_rows)
+            ]}
+
+    # FALLBACK TO AI ONLY IF NEEDED
     ai_result = await fetch_ai_parsing(text)
     if ai_result and ai_result.get("transactions"):
         return ai_result

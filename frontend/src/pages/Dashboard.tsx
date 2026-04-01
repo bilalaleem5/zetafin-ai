@@ -81,16 +81,18 @@ export default function Dashboard() {
   const [stats, setStats]       = useState<any>(null)
   const [loading, setLoading]   = useState(true)
   const [balanceInput, setBalanceInput] = useState('')
+  const [period, setPeriod]     = useState('this_month')
+  
   const currency                = stats?.currency ?? 'PKR'
   const fmt = (n: number) => `${currency} ${n.toLocaleString()}`
 
   const load = async () => {
     setLoading(true)
     try {
-      const { data } = await api.get('/dashboard-stats')
+      const { data } = await api.get(`/dashboard-stats?period=${period}`)
       setStats(data)
       setBalanceInput(data.bank_balance.toString())
-    } catch { /* demo mode */ }
+    } catch { /* empty */ }
     finally { setLoading(false) }
   }
 
@@ -103,16 +105,17 @@ export default function Dashboard() {
     } catch { alert('Error updating balance') }
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load() }, [period])
 
   const net      = stats?.net_position ?? 0
   const netPos   = net >= 0
+  const periodLabel = period === 'all_time' ? 'All Time' : period === 'this_year' ? 'This Year' : period === 'last_month' ? 'Last Month' : 'This Month'
 
   const statCards = [
-    { label: 'Income This Month', value: fmt(stats?.total_income ?? 0),
-      sub: 'This months earnings', icon: TrendingUp, accent: 'accent-left-green', delay: 0.05 },
-    { label: 'Expenses This Month', value: fmt(stats?.total_expense ?? 0),
-      sub: 'Payroll & Recurring', icon: TrendingDown, accent: 'accent-left-red', delay: 0.1 },
+    { label: `Income (${periodLabel})`, value: fmt(stats?.total_income ?? 0),
+      sub: 'Total earnings', icon: TrendingUp, accent: 'accent-left-green', delay: 0.05 },
+    { label: `Expenses (${periodLabel})`, value: fmt(stats?.total_expense ?? 0),
+      sub: 'Total spending', icon: TrendingDown, accent: 'accent-left-red', delay: 0.1 },
     { label: 'Cash Runway', value: `${stats?.runway_weeks ?? 0} Weeks`,
       sub: `Based on 30-day burn`, icon: Clock, accent: 'accent-left-amber', delay: 0.15 },
     { label: 'Bank Balance', value: fmt(stats?.bank_balance ?? 0),
@@ -122,14 +125,26 @@ export default function Dashboard() {
   return (
     <div className="space-y-8 max-w-7xl mx-auto">
       {/* Page header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">Financial Intelligence</h1>
           <p className="text-text-secondary text-sm mt-0.5">{stats?.period_name || 'Loading period...'} · Real-time Analysis</p>
         </div>
-        <button onClick={load} className="btn-ghost text-sm py-2">
-          <RefreshCw size={15} /> Refresh
-        </button>
+        <div className="flex items-center gap-3">
+          <select 
+            value={period} 
+            onChange={(e) => setPeriod(e.target.value)}
+            className="input-field py-2 px-3 text-sm w-40 bg-white/5 border-white/10"
+          >
+            <option value="this_month">This Month</option>
+            <option value="last_month">Last Month</option>
+            <option value="this_year">This Year</option>
+            <option value="all_time">All Time</option>
+          </select>
+          <button onClick={load} className="btn-ghost flex items-center gap-2 text-sm py-2 px-3">
+            <RefreshCw size={15} /> Refresh
+          </button>
+        </div>
       </div>
 
       {/* ── Hero: Net Position ─────────────────────────────────────── */}
@@ -237,6 +252,35 @@ export default function Dashboard() {
 
         {/* Side: Obligations */}
         <div className="space-y-5">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.28 }}
+            className="card p-5 border-l-4 border-red/30"
+          >
+            <h3 className="font-semibold mb-4 flex items-center gap-2">
+              <AlertTriangle size={16} className="text-red" /> Overdue Receivables
+            </h3>
+            <div className="space-y-4">
+              {!stats?.overdue_receivables || stats.overdue_receivables.length === 0 ? (
+                <p className="text-[10px] text-text-muted py-2 text-center">No overdue payments. Great!</p>
+              ) : (
+                stats.overdue_receivables.map((item: any, i: number) => (
+                  <div key={i} className="flex justify-between items-start py-1.5 border-b border-white/5 last:border-0 border-dashed">
+                    <div>
+                      <p className="text-xs font-bold text-red-400">{item.client}</p>
+                      <p className="text-[10px] text-text-secondary">{item.title}</p>
+                      <div className="badge badge-red py-0 px-1.5 text-[9px] mt-1">{item.days_late} Days Late</div>
+                    </div>
+                    <span className="num text-sm font-black text-red-500">
+                      {fmt(item.amount)}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          </motion.div>
+
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}

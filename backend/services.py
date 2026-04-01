@@ -1,6 +1,6 @@
 from sqlmodel import Session, select
 from datetime import datetime, timedelta
-from models import Transaction, RecurringExpense, Milestone, User
+from models import Transaction, RecurringExpense, Milestone, User, VendorBill
 import traceback
 
 def process_automation_for_user(session: Session, user: User):
@@ -67,6 +67,17 @@ def process_automation_for_user(session: Session, user: User):
     for m in milestones:
         m.status = "Overdue"
         session.add(m)
+
+    # 3. VENDOR BILL OVERDUE CHECK
+    all_vendor_bills = session.exec(select(VendorBill).where(
+        VendorBill.user_id == user.id,
+        VendorBill.status == "Pending"
+    )).all()
+    
+    vendor_bills = [b for b in all_vendor_bills if ensure_dt(b.due_date) < now]
+    for b in vendor_bills:
+        b.status = "Overdue"
+        session.add(b)
 
     try:
         session.commit()

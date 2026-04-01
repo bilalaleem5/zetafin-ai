@@ -103,3 +103,42 @@ def parse_whatsapp_message(message: str, user: User, session: Session) -> Option
         }
 
     return None
+
+import os
+import httpx
+
+async def send_whatsapp_message(to_number: str, text: str):
+    """
+    Sends a message via Meta WhatsApp Cloud API.
+    Uses environment variables for credentials.
+    """
+    access_token = os.getenv("WHATSAPP_ACCESS_TOKEN")
+    phone_number_id = os.getenv("WHATSAPP_PHONE_ID") # User must provide this
+    
+    if not access_token or not phone_number_id:
+        print("DEBUG: WhatsApp credentials missing. Cannot send message.")
+        return False
+        
+    url = f"https://graph.facebook.com/v17.0/{phone_number_id}/messages"
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to_number,
+        "type": "text",
+        "text": {"body": text}
+    }
+    
+    async with httpx.AsyncClient() as client:
+        try:
+            resp = await client.post(url, json=payload, headers=headers)
+            if resp.status_code in [200, 201]:
+                return True
+            else:
+                print(f"DEBUG: WhatsApp send failed: {resp.text}")
+                return False
+        except Exception as e:
+            print(f"DEBUG: WhatsApp error: {e}")
+            return False
