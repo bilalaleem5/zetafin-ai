@@ -1,7 +1,7 @@
 import axios from 'axios'
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://140.245.219.55',
+  baseURL: import.meta.env.VITE_API_URL || 'https://zetafin.app',
 })
 
 api.interceptors.request.use((config) => {
