@@ -137,16 +137,16 @@ async def query_ai_insights(query: str, db: Session, user_id: int):
     # 4. Call Gemini (Adaptive Intelligence)
     if GEMINI_KEY:
         try:
-            model = genai.GenerativeModel('models/gemini-1.5-flash')
+            model = genai.GenerativeModel('models/gemini-2.5-flash')
             response = model.generate_content(prompt)
             if response.text:
-                return response.text.strip()
+                return response.text.replace('**', '').strip()
         except Exception as e:
             print(f"Gemini Intelligence Error (Flash): {e}")
             try:
-                model = genai.GenerativeModel('models/gemini-pro')
+                model = genai.GenerativeModel('models/gemini-2.5-pro')
                 response = model.generate_content(prompt)
-                return response.text.strip()
+                return response.text.replace('**', '').strip()
             except Exception as e2:
                 print(f"Gemini Intelligence Error (Pro): {e2}")
                 pass
