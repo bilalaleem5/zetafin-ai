@@ -8,7 +8,14 @@ load_dotenv()
 # Local SQLite default for robustness
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./zetamize.db")
 
-engine = create_engine(DATABASE_URL, echo=True, connect_args={"check_same_thread": False} if "sqlite" in DATABASE_URL else {})
+engine_args = {}
+if "sqlite" in DATABASE_URL:
+    engine_args["connect_args"] = {"check_same_thread": False}
+else:
+    engine_args["pool_pre_ping"] = True
+    engine_args["pool_recycle"] = 300
+
+engine = create_engine(DATABASE_URL, echo=True, **engine_args)
 
 def create_db_and_tables():
     from models import SQLModel
