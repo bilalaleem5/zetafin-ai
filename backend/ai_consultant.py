@@ -191,29 +191,29 @@ def build_response(query: str, summary: dict, search_results: list) -> str:
         net = summary["net_position"]
         direction = "+" if net >= 0 else ""
         if is_urdu:
-            return (f"📊 **Aapki Net Financial Position:**\n\n"
-                    f"💰 Bank Balance: **{fmt(summary['balance'])} {cur}**\n"
-                    f"📥 Receivables (Milne Wali Raqam): **{fmt(summary['receivables'])} {cur}**\n"
-                    f"📤 Payables (Deny Wali Raqam): **{fmt(summary['payables'])} {cur}**\n"
-                    f"📈 Total Income (Sab Waqt): **{fmt(summary['total_income'])} {cur}**\n"
-                    f"📉 Total Expense (Sab Waqt): **{fmt(summary['total_expense'])} {cur}**\n"
-                    f"🧾 **Net P&L: {direction}{fmt(net)} {cur}**\n\n"
+            return (f"📊 Aapki Net Financial Position:\n\n"
+                    f"💰 Bank Balance: {fmt(summary['balance'])} {cur}\n"
+                    f"📥 Receivables (Milne Wali Raqam): {fmt(summary['receivables'])} {cur}\n"
+                    f"📤 Payables (Deny Wali Raqam): {fmt(summary['payables'])} {cur}\n"
+                    f"📈 Total Income (Sab Waqt): {fmt(summary['total_income'])} {cur}\n"
+                    f"📉 Total Expense (Sab Waqt): {fmt(summary['total_expense'])} {cur}\n"
+                    f"🧾 Net P&L: {direction}{fmt(net)} {cur}\n\n"
                     f"{'✅ Profit mein hain!' if net >= 0 else '⚠️ Loss mein hain, kharcha zyada hai.'}")
         else:
-            return (f"📊 **Your Complete Financial Position:**\n\n"
-                    f"💰 Bank Balance: **{fmt(summary['balance'])} {cur}**\n"
-                    f"📥 Receivables (Pending Income): **{fmt(summary['receivables'])} {cur}**\n"
-                    f"📤 Payables (Bills Owed): **{fmt(summary['payables'])} {cur}**\n"
-                    f"📈 Total Income (All Time): **{fmt(summary['total_income'])} {cur}**\n"
-                    f"📉 Total Expenses (All Time): **{fmt(summary['total_expense'])} {cur}**\n"
-                    f"🧾 **Net P&L: {direction}{fmt(net)} {cur}**\n\n"
+            return (f"📊 Your Complete Financial Position:\n\n"
+                    f"💰 Bank Balance: {fmt(summary['balance'])} {cur}\n"
+                    f"📥 Receivables (Pending Income): {fmt(summary['receivables'])} {cur}\n"
+                    f"📤 Payables (Bills Owed): {fmt(summary['payables'])} {cur}\n"
+                    f"📈 Total Income (All Time): {fmt(summary['total_income'])} {cur}\n"
+                    f"📉 Total Expenses (All Time): {fmt(summary['total_expense'])} {cur}\n"
+                    f"🧾 Net P&L: {direction}{fmt(net)} {cur}\n\n"
                     f"{'✅ You are profitable!' if net >= 0 else '⚠️ Expenses exceed income — review spending.'}")
 
     # ── INTENT: Balance ──
     if any(w in q for w in ["balance", "bank", "account", "bakaya", "kitna pesa", "kitna paisa"]):
         if is_urdu:
-            return f"💰 Aapka **Bank Balance {fmt(summary['balance'])} {cur}** hai."
-        return f"💰 Your current **Bank Balance is {fmt(summary['balance'])} {cur}**."
+            return f"💰 Aapka Bank Balance {fmt(summary['balance'])} {cur} hai."
+        return f"💰 Your current Bank Balance is {fmt(summary['balance'])} {cur}."
 
     # ── INTENT: Income / Kamai ──
     if any(w in q for w in ["income", "kamai", "revenue", "earned", "mila", "aya", "received",
@@ -223,59 +223,59 @@ def build_response(query: str, summary: dict, search_results: list) -> str:
             lines = []
             total = 0
             for _, t in recent_income[:10]:
-                lines.append(f"  • {t.date.strftime('%d %b %Y')} — {t.description}: **{fmt(t.amount)} {cur}**")
+                lines.append(f"  • {t.date.strftime('%d %b %Y')} — {t.description}: {fmt(t.amount)} {cur}")
                 total += t.amount
             if is_urdu:
-                return f"📥 **Matching Income Records:**\n\n" + "\n".join(lines) + f"\n\n💵 **Total: {fmt(total)} {cur}**"
-            return f"📥 **Matching Income Records:**\n\n" + "\n".join(lines) + f"\n\n💵 **Total: {fmt(total)} {cur}**"
+                return f"📥 Matching Income Records:\n\n" + "\n".join(lines) + f"\n\n💵 Total: {fmt(total)} {cur}"
+            return f"📥 Matching Income Records:\n\n" + "\n".join(lines) + f"\n\n💵 Total: {fmt(total)} {cur}"
         if is_urdu:
-            return (f"📥 **Income Summary:**\n"
-                    f"• Pichle 30 Din: **{fmt(summary['income_30d'])} {cur}**\n"
-                    f"• Sab Waqt Total: **{fmt(summary['total_income'])} {cur}**")
-        return (f"📥 **Income Summary:**\n"
-                f"• Last 30 Days: **{fmt(summary['income_30d'])} {cur}**\n"
-                f"• All Time Total: **{fmt(summary['total_income'])} {cur}**")
+            return (f"📥 Income Summary:\n"
+                    f"• Pichle 30 Din: {fmt(summary['income_30d'])} {cur}\n"
+                    f"• Sab Waqt Total: {fmt(summary['total_income'])} {cur}")
+        return (f"📥 Income Summary:\n"
+                f"• Last 30 Days: {fmt(summary['income_30d'])} {cur}\n"
+                f"• All Time Total: {fmt(summary['total_income'])} {cur}")
 
     # ── INTENT: Expenses / Kharcha ──
     if any(w in q for w in ["expense", "kharcha", "kharch", "spent", "spend", "expenditure",
                               "cost", "burn", "burn rate", "kitna kharch", "kharcha kitna"]):
         spending = summary["actual_spending"]
         if spending:
-            lines = [f"  • {cat}: **{fmt(amt)} {cur}**" for cat, amt in sorted(spending.items(), key=lambda x: -x[1])]
+            lines = [f"  • {cat}: {fmt(amt)} {cur}" for cat, amt in sorted(spending.items(), key=lambda x: -x[1])]
             if is_urdu:
-                return (f"💸 **Is Mahine Ka Kharcha ({fmt(summary['monthly_burn'])} {cur} / 30 din):**\n\n"
+                return (f"💸 Is Mahine Ka Kharcha ({fmt(summary['monthly_burn'])} {cur} / 30 din):\n\n"
                         + "\n".join(lines))
-            return (f"💸 **This Month's Expenses ({fmt(summary['monthly_burn'])} {cur} / 30-day burn):**\n\n"
+            return (f"💸 This Month's Expenses ({fmt(summary['monthly_burn'])} {cur} / 30-day burn):\n\n"
                     + "\n".join(lines))
         if is_urdu:
-            return f"💸 Is mahine abhi tak koi kharcha nahi darz kiya. 30-din burn: **{fmt(summary['monthly_burn'])} {cur}**"
-        return f"💸 No expenses recorded this month yet. 30-day burn: **{fmt(summary['monthly_burn'])} {cur}**"
+            return f"💸 Is mahine abhi tak koi kharcha nahi darz kiya. 30-din burn: {fmt(summary['monthly_burn'])} {cur}"
+        return f"💸 No expenses recorded this month yet. 30-day burn: {fmt(summary['monthly_burn'])} {cur}"
 
     # ── INTENT: Receivables ──
     if any(w in q for w in ["receivable", "milne wali", "receive", "outstanding", "pending income",
                               "clients owe", "due from", "milne wala"]):
         pending_mils = [r for r in search_results if r[0] == "milestone"]
         if pending_mils:
-            lines = [f"  • {m.title} — **{fmt(m.amount)} {cur}** ({m.status})" for _, m in pending_mils[:10]]
+            lines = [f"  • {m.title} — {fmt(m.amount)} {cur} ({m.status})" for _, m in pending_mils[:10]]
             if is_urdu:
-                return f"📥 **Pending Milestones (Milne Wali Raqam):**\n\n" + "\n".join(lines) + f"\n\n💵 Total: **{fmt(summary['receivables'])} {cur}**"
-            return f"📥 **Pending Milestones (Receivables):**\n\n" + "\n".join(lines) + f"\n\n💵 Total: **{fmt(summary['receivables'])} {cur}**"
+                return f"📥 Pending Milestones (Milne Wali Raqam):\n\n" + "\n".join(lines) + f"\n\n💵 Total: {fmt(summary['receivables'])} {cur}"
+            return f"📥 Pending Milestones (Receivables):\n\n" + "\n".join(lines) + f"\n\n💵 Total: {fmt(summary['receivables'])} {cur}"
         if is_urdu:
-            return f"📥 Aapki total receivables: **{fmt(summary['receivables'])} {cur}**"
-        return f"📥 Total Receivables: **{fmt(summary['receivables'])} {cur}**"
+            return f"📥 Aapki total receivables: {fmt(summary['receivables'])} {cur}"
+        return f"📥 Total Receivables: {fmt(summary['receivables'])} {cur}"
 
     # ── INTENT: Payables / Bills ──
     if any(w in q for w in ["payable", "dene wali", "bill", "vendor bill", "owed", "due to",
                               "outstanding payment", "dena hai"]):
         bills = [r for r in search_results if r[0] == "bill"]
         if bills:
-            lines = [f"  • {b.title} — **{fmt(b.amount)} {cur}** ({b.status})" for _, b in bills[:10]]
+            lines = [f"  • {b.title} — {fmt(b.amount)} {cur} ({b.status})" for _, b in bills[:10]]
             if is_urdu:
-                return f"📤 **Pending Bills (Dene Wali Raqam):**\n\n" + "\n".join(lines) + f"\n\n💵 Total: **{fmt(summary['payables'])} {cur}**"
-            return f"📤 **Pending Bills (Payables):**\n\n" + "\n".join(lines) + f"\n\n💵 Total: **{fmt(summary['payables'])} {cur}**"
+                return f"📤 Pending Bills (Dene Wali Raqam):\n\n" + "\n".join(lines) + f"\n\n💵 Total: {fmt(summary['payables'])} {cur}"
+            return f"📤 Pending Bills (Payables):\n\n" + "\n".join(lines) + f"\n\n💵 Total: {fmt(summary['payables'])} {cur}"
         if is_urdu:
-            return f"📤 Aapki total payables: **{fmt(summary['payables'])} {cur}**"
-        return f"📤 Total Payables: **{fmt(summary['payables'])} {cur}**"
+            return f"📤 Aapki total payables: {fmt(summary['payables'])} {cur}"
+        return f"📤 Total Payables: {fmt(summary['payables'])} {cur}"
 
     # ── INTENT: Specific person/vendor search (pay from/to) ──
     if search_results:
@@ -289,34 +289,34 @@ def build_response(query: str, summary: dict, search_results: list) -> str:
         for rtype, record in search_results[:15]:
             if rtype in ("tx", "client_tx", "emp_tx"):
                 arrow = "📥" if record.type == "income" else "📤"
-                lines.append(f"{arrow} {record.date.strftime('%d %b %Y')} | {record.description} | **{fmt(record.amount)} {cur}** ({record.type})")
+                lines.append(f"{arrow} {record.date.strftime('%d %b %Y')} | {record.description} | {fmt(record.amount)} {cur} ({record.type})")
                 if record.type == "income":
                     total_income_found += record.amount
                 else:
                     total_expense_found += record.amount
             elif rtype == "milestone":
-                lines.append(f"🎯 Milestone: **{record.title}** | {fmt(record.amount)} {cur} | {record.status}")
+                lines.append(f"🎯 Milestone: {record.title} | {fmt(record.amount)} {cur} | {record.status}")
             elif rtype == "bill":
-                lines.append(f"🧾 Bill: **{record.title}** | {fmt(record.amount)} {cur} | {record.status}")
+                lines.append(f"🧾 Bill: {record.title} | {fmt(record.amount)} {cur} | {record.status}")
             elif rtype == "client":
-                lines.append(f"👤 Client: **{record.name}** | Contract: {fmt(record.contract_value)} {cur} | {record.status}")
+                lines.append(f"👤 Client: {record.name} | Contract: {fmt(record.contract_value)} {cur} | {record.status}")
             elif rtype == "employee":
-                lines.append(f"👨‍💼 Employee: **{record.name}** | Role: {record.role} | Salary: {fmt(record.salary)} {cur}")
+                lines.append(f"👨‍💼 Employee: {record.name} | Role: {record.role} | Salary: {fmt(record.salary)} {cur}")
             elif rtype == "vendor":
-                lines.append(f"🏪 Vendor: **{record.name}** | Category: {record.category}")
+                lines.append(f"🏪 Vendor: {record.name} | Category: {record.category}")
             elif rtype == "audit":
                 lines.append(f"🔍 Log: {record.timestamp.strftime('%d %b %Y %H:%M')} | {record.action} on {record.table_name}")
 
         out = "\n".join(lines)
         summary_line = ""
         if total_income_found > 0:
-            summary_line += f"\n\n💵 **Total Received: {fmt(total_income_found)} {cur}**"
+            summary_line += f"\n\n💵 Total Received: {fmt(total_income_found)} {cur}"
         if total_expense_found > 0:
-            summary_line += f"\n💸 **Total Paid: {fmt(total_expense_found)} {cur}**"
+            summary_line += f"\n💸 Total Paid: {fmt(total_expense_found)} {cur}"
 
         if is_urdu:
-            return f"🔍 **Iss query se milte julte records:**\n\n{out}{summary_line}"
-        return f"🔍 **Matching records found:**\n\n{out}{summary_line}"
+            return f"🔍 Iss query se milte julte records:\n\n{out}{summary_line}"
+        return f"🔍 Matching records found:\n\n{out}{summary_line}"
 
     # ── INTENT: Recent transactions ──
     if any(w in q for w in ["recent", "last", "latest", "transactions", "history",
@@ -326,10 +326,10 @@ def build_response(query: str, summary: dict, search_results: list) -> str:
             lines = []
             for t in txs:
                 arrow = "📥" if t.type == "income" else "📤"
-                lines.append(f"{arrow} {t.date.strftime('%d %b %Y')} | {t.description} | **{fmt(t.amount)} {cur}**")
+                lines.append(f"{arrow} {t.date.strftime('%d %b %Y')} | {t.description} | {fmt(t.amount)} {cur}")
             if is_urdu:
-                return f"📋 **Aakhri Transactions:**\n\n" + "\n".join(lines)
-            return f"📋 **Recent Transactions:**\n\n" + "\n".join(lines)
+                return f"📋 Aakhri Transactions:\n\n" + "\n".join(lines)
+            return f"📋 Recent Transactions:\n\n" + "\n".join(lines)
 
     # ── INTENT: Audit Log / System Activity ──
     if any(w in q for w in ["deleted", "edited", "updated", "changed", "who", "audit", "log",
@@ -339,36 +339,36 @@ def build_response(query: str, summary: dict, search_results: list) -> str:
             lines = [f"🔍 {a.timestamp.strftime('%d %b %Y %H:%M')} | {a.action} on {a.table_name} (ID: {a.record_id})"
                      for a in audits]
             if is_urdu:
-                return f"📜 **System Activity Log (Akhri Actions):**\n\n" + "\n".join(lines)
-            return f"📜 **System Activity Log (Recent Actions):**\n\n" + "\n".join(lines)
+                return f"📜 System Activity Log (Akhri Actions):\n\n" + "\n".join(lines)
+            return f"📜 System Activity Log (Recent Actions):\n\n" + "\n".join(lines)
 
     # ── INTENT: Clients / Employees / Vendors count ──
     if any(w in q for w in ["client", "customer", "grahak", "employee", "mulazim", "staff",
                               "vendor", "supplier", "how many", "kitne", "count", "total"]):
         c = summary["counts"]
         if is_urdu:
-            return (f"👥 **Aapke System Mein:**\n"
-                    f"• Clients: **{c['clients']}**\n"
-                    f"• Employees: **{c['employees']}**\n"
-                    f"• Vendors: **{c['vendors']}**")
-        return (f"👥 **Your System Totals:**\n"
-                f"• Clients: **{c['clients']}**\n"
-                f"• Employees: **{c['employees']}**\n"
-                f"• Vendors: **{c['vendors']}**")
+            return (f"👥 Aapke System Mein:\n"
+                    f"• Clients: {c['clients']}\n"
+                    f"• Employees: {c['employees']}\n"
+                    f"• Vendors: {c['vendors']}")
+        return (f"👥 Your System Totals:\n"
+                f"• Clients: {c['clients']}\n"
+                f"• Employees: {c['employees']}\n"
+                f"• Vendors: {c['vendors']}")
 
     # ── FALLBACK: General dashboard summary ──
     if is_urdu:
-        return (f"💼 **ZetaFin Dashboard Summary:**\n\n"
-                f"💰 Balance: **{fmt(summary['balance'])} {cur}**\n"
-                f"📥 Receivables: **{fmt(summary['receivables'])} {cur}**\n"
-                f"📤 Payables: **{fmt(summary['payables'])} {cur}**\n"
-                f"📉 30-Din Kharcha: **{fmt(summary['monthly_burn'])} {cur}**\n\n"
+        return (f"💼 ZetaFin Dashboard Summary:\n\n"
+                f"💰 Balance: {fmt(summary['balance'])} {cur}\n"
+                f"📥 Receivables: {fmt(summary['receivables'])} {cur}\n"
+                f"📤 Payables: {fmt(summary['payables'])} {cur}\n"
+                f"📉 30-Din Kharcha: {fmt(summary['monthly_burn'])} {cur}\n\n"
                 f"💡 Specific cheez poochein jaise: 'Ali se kitna paisa aya?' ya 'Is mahine ka kharcha?'")
-    return (f"💼 **ZetaFin Dashboard Summary:**\n\n"
-            f"💰 Balance: **{fmt(summary['balance'])} {cur}**\n"
-            f"📥 Receivables: **{fmt(summary['receivables'])} {cur}**\n"
-            f"📤 Payables: **{fmt(summary['payables'])} {cur}**\n"
-            f"📉 30-Day Burn: **{fmt(summary['monthly_burn'])} {cur}**\n\n"
+    return (f"💼 ZetaFin Dashboard Summary:\n\n"
+            f"💰 Balance: {fmt(summary['balance'])} {cur}\n"
+            f"📥 Receivables: {fmt(summary['receivables'])} {cur}\n"
+            f"📤 Payables: {fmt(summary['payables'])} {cur}\n"
+            f"📉 30-Day Burn: {fmt(summary['monthly_burn'])} {cur}\n\n"
             f"💡 Try asking: 'Income from Ali?' or 'This month expenses?'")
 
 
