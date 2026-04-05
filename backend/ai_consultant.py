@@ -62,65 +62,59 @@ def get_ceo_summary(db: Session, user_id: int):
         "currency": user.currency if user else "PKR"
     }
 
+import re
+
 async def query_ai_insights(query: str, db: Session, user_id: int):
+    # Fetch accurate real-time dashboard stats
     summary = get_ceo_summary(db, user_id)
+    q = query.lower()
     
-    prompt = f"""
-    You are the ZetaFin AI Financial Consultant. Answer the CEO's question based on their real financial data.
-    Be concise, professional, and strategic.
+    currency = summary.get("currency", "PKR")
     
-    Current Financial Summary:
-    - Bank Balance: {summary['balance']} {summary['currency']}
-    - Total Receivables (Clients): {summary['receivables']} {summary['currency']}
-    - Total Payables (Vendors): {summary['payables']} {summary['currency']}
-    - 30-Day Burn Rate: {summary['monthly_burn']} {summary['currency']}
-    - Category Budgets: {json.dumps(summary['budgets'])}
-    - Actual Spend per Category: {json.dumps(summary['actual_spending'])}
-    
-    CEO Question: {query}
-    
-    Strategic Insight:
-    """
-    
-    # 1. ATTEMPT GEMINI (Fast & Large Context)
-    if GEMINI_KEY:
-        try:
-            model = genai.GenerativeModel('gemini-1.5-flash')
-            response = model.generate_content(prompt)
-            if response.text:
-                return response.text
-        except Exception as e:
-            print(f"Gemini Consultant Error: {e}")
+    # 1. Intent: Bank Balance
+    if re.search(r'\b(balance|kitna paisa|bank|bachat|available|amount|cash)\b', q):
+        return f"Aapka current bank balance {summary['balance']} {currency} hai."
+        
+    # 2. Intent: Receivables / Incomes Pending
+    elif re.search(r'\b(receive|lena|lene|receivables|milna|milne|aana|aane)\b', q):
+        return f"Aapne clients se total {summary['receivables']} {currency} lene hain (Pending Receivables)."
+        
+    # 3. Intent: Payables / Outstanding Bills
+    elif re.search(r'\b(payable|dena|dene|vendors|bill|bills|udhar|qarza)\b', q):
+        return f"Aapne vendors ko total {summary['payables']} {currency} dene hain (Pending Payables)."
+        
+    # 4. Intent: Expenses / Spends
+    elif re.search(r'\b(expense|expenses|kharch|kharcha|burn|spend|kharach|lagaya|karch)\b', q):
+        categories = summary.get('actual_spending', {})
+        resp = f"Aapka pichle 30 din ka total kharcha {summary['monthly_burn']} {currency} aya hai.\n\n"
+        if categories:
+            resp += "Is maheenay ki category-wise details:\n"
+            for cat, amt in categories.items():
+                resp += f"- {cat}: {amt} {currency}\n"
+        return resp.strip()
+        
+    # 5. Intent: Budgets
+    elif re.search(r'\b(budget|limit|limits)\b', q):
+        budgets = summary.get('budgets', {})
+        if not budgets:
+            return "Aapne is maheenay ka koi budget set nahi kiya hua."
+        resp = "Aapke tay karda budgets ye hain:\n"
+        for cat, amt in budgets.items():
+            resp += f"- {cat}: {amt} {currency}\n"
+        return resp.strip()
+        
+    # 6. Fallback: Full Dashboard Mini-Summary (Triggered on unrecognized queries like greetings)
+    fallback_text = f"""
+Main aapka local automated Financial Consultant hoon! Yeh aapke current dashboard key stats hain:
 
-    # 2. ATTEMPT GROK / OPENROUTER
-    async with httpx.AsyncClient() as client:
-        if XAI_KEY:
-            try:
-                resp = await client.post(
-                    "https://api.x.ai/v1/chat/completions",
-                    json={"model": "grok-beta", "messages": [{"role": "user", "content": prompt}]},
-                    headers={"Authorization": f"Bearer {XAI_KEY}", "Content-Type": "application/json"},
-                    timeout=20.0
-                )
-                if resp.status_code == 200:
-                    return resp.json()["choices"][0]["message"]["content"]
-            except:
-                pass
-            
-        if OPENROUTER_KEY:
-            try:
-                resp = await client.post(
-                    "https://openrouter.ai/api/v1/chat/completions",
-                    json={"model": "openai/gpt-4o-mini", "messages": [{"role": "user", "content": prompt}]},
-                    headers={"Authorization": f"Bearer {OPENROUTER_KEY}", "Content-Type": "application/json"},
-                    timeout=20.0
-                )
-                if resp.status_code == 200:
-                    return resp.json()["choices"][0]["message"]["content"]
-            except:
-                pass
+💰 **Bank Balance:** {summary['balance']} {currency}
+📉 **Pichle 30 Din ka Kharcha:** {summary['monthly_burn']} {currency}
+📥 **Milne Wali Raqam (Receivables):** {summary['receivables']} {currency}
+📤 **Dene Wali Raqam (Payables):** {summary['payables']} {currency}
 
-    return "ZetaFin AI is currently resting. Please try again in 1 minute."
+Aap specific report k liye pooch sakte hain (Misal ke tor par: "Mera expense kitna hai?" ya "Balance kya hai?").
+"""
+    return fallback_text.strip()
 
 def log_audit(db: Session, user_id: int, action: str, table: str, record_id: int, old_val=None, new_val=None):
     log = AuditLog(
